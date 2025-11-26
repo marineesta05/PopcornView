@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 const Register = () => {
+    const navigate = useNavigate();  
+
     const [formData, setFormData] = useState({
         nom: "",
         prenom: "",
@@ -34,10 +37,9 @@ const Register = () => {
             const data = await response.json();
 
             if (response.status === 201) {
-                setSuccess("Inscription réussie !");
-                setTimeout(() => {
-                    setFormData({ nom: "", prenom: "", email: "", password: "", role: "user" });
-                }, 1500);
+                setSuccess("Registration successful!");
+                navigate("/login");  
+                setFormData({ email: "", password: "" });
             } else {
                 setError(data.message || "Une erreur s'est produite.");
             }
@@ -49,10 +51,20 @@ const Register = () => {
     return (
         <div style={{ maxWidth: "400px", margin: "50px auto", padding: "20px", fontFamily: "Arial, sans-serif" }}>
             <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Inscription</h2>
-            {error && <p style={{ color: "red", marginBottom: "10px", padding: "10px", backgroundColor: "#ffebee", borderRadius: "4px" }}>{error}</p>}
-            {success && <p style={{ color: "green", marginBottom: "10px", padding: "10px", backgroundColor: "#e8f5e9", borderRadius: "4px" }}>{success}</p>}
-            
-            <div>
+
+            {error && (
+                <p style={{ color: "red", marginBottom: "10px", padding: "10px", backgroundColor: "#ffebee", borderRadius: "4px" }}>
+                    {error}
+                </p>
+            )}
+
+            {success && (
+                <p style={{ color: "green", marginBottom: "10px", padding: "10px", backgroundColor: "#e8f5e9", borderRadius: "4px" }}>
+                    {success}
+                </p>
+            )}
+
+            <form onSubmit={handleSubmit}>
                 <div style={{ marginBottom: "15px" }}>
                     <label htmlFor="nom" style={{ display: "block", marginBottom: "5px", fontWeight: "bold" }}>Nom :</label>
                     <input
@@ -62,10 +74,11 @@ const Register = () => {
                         value={formData.nom}
                         onChange={handleChange}
                         maxLength={20}
-                        style={{ width: "100%", padding: "8px", border: "1px solid #ccc", borderRadius: "4px", boxSizing: "border-box" }}
+                        style={{ width: "100%", padding: "8px" }}
                         required
                     />
                 </div>
+
                 <div style={{ marginBottom: "15px" }}>
                     <label htmlFor="prenom" style={{ display: "block", marginBottom: "5px", fontWeight: "bold" }}>Prénom :</label>
                     <input
@@ -75,10 +88,11 @@ const Register = () => {
                         value={formData.prenom}
                         onChange={handleChange}
                         maxLength={20}
-                        style={{ width: "100%", padding: "8px", border: "1px solid #ccc", borderRadius: "4px", boxSizing: "border-box" }}
+                        style={{ width: "100%", padding: "8px" }}
                         required
                     />
                 </div>
+
                 <div style={{ marginBottom: "15px" }}>
                     <label htmlFor="email" style={{ display: "block", marginBottom: "5px", fontWeight: "bold" }}>Email :</label>
                     <input
@@ -88,10 +102,11 @@ const Register = () => {
                         value={formData.email}
                         onChange={handleChange}
                         maxLength={50}
-                        style={{ width: "100%", padding: "8px", border: "1px solid #ccc", borderRadius: "4px", boxSizing: "border-box" }}
+                        style={{ width: "100%", padding: "8px" }}
                         required
                     />
                 </div>
+
                 <div style={{ marginBottom: "15px" }}>
                     <label htmlFor="password" style={{ display: "block", marginBottom: "5px", fontWeight: "bold" }}>Mot de passe :</label>
                     <input
@@ -100,7 +115,7 @@ const Register = () => {
                         name="password"
                         value={formData.password}
                         onChange={handleChange}
-                        style={{ width: "100%", padding: "8px", border: "1px solid #ccc", borderRadius: "4px", boxSizing: "border-box" }}
+                        style={{ width: "100%", padding: "8px" }}
                         required
                     />
                     <small style={{ color: "#666", fontSize: "12px" }}>
@@ -109,12 +124,12 @@ const Register = () => {
                 </div>
 
                 <button 
-                    onClick={handleSubmit}
-                    style={{ 
-                        width: "100%", 
-                        padding: "10px", 
+                    type="submit"
+                    style={{
+                        width: "100%",
+                        padding: "10px",
                         marginBottom: "10px",
-                        backgroundColor: "#131a20ff",
+                        backgroundColor: "#131a20",
                         color: "white",
                         border: "none",
                         borderRadius: "4px",
@@ -125,54 +140,55 @@ const Register = () => {
                 >
                     S'inscrire
                 </button>
-                <button 
-                    onClick={() => alert("Redirection vers /login")}
-                    style={{ 
-                        width: "100%", 
-                        padding: "10px", 
-                        marginBottom: "10px",
-                        backgroundColor: "#303d48ff",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        fontSize: "14px"
-                    }}
-                >
-                    J'ai déjà un compte
-                </button>
-                <button 
-                    onClick={() => alert("Redirection vers /home")}
-                    style={{ 
-                        width: "100%", 
-                        padding: "10px", 
-                        marginBottom: "10px",
-                        backgroundColor: "#325139ff",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        fontSize: "14px"
-                    }}
-                >
-                    Continuer sans compte
-                </button>
-                <button 
-                    onClick={() => alert("Redirection vers /login (admin)")}
-                    style={{ 
-                        width: "100%", 
-                        padding: "10px",
-                        backgroundColor: "#521a20ff",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        fontSize: "14px"
-                    }}
-                >
-                    Je suis un administrateur
-                </button>
-            </div>
+            </form>
+
+            {/* BOUTONS DE NAVIGATION */}
+            <button
+                onClick={() => navigate("/login")}
+                style={{
+                    width: "100%",
+                    padding: "10px",
+                    marginBottom: "10px",
+                    backgroundColor: "#303d48",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer"
+                }}
+            >
+                J'ai déjà un compte
+            </button>
+
+            <button
+                onClick={() => navigate("/home")}
+                style={{
+                    width: "100%",
+                    padding: "10px",
+                    marginBottom: "10px",
+                    backgroundColor: "#325139",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer"
+                }}
+            >
+                Continuer sans compte
+            </button>
+
+            <button
+                onClick={() => navigate("/admin/login")}
+                style={{
+                    width: "100%",
+                    padding: "10px",
+                    backgroundColor: "#521a20",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer"
+                }}
+            >
+                Je suis un administrateur
+            </button>
         </div>
     );
 };

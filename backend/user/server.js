@@ -88,6 +88,53 @@ app.post('/register', async (req, res) => {
         res.status(500).json({ message: 'Erreur serveur', error: error.message });
     }
 });
+
+
+app.post('/login', (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ message: "Email et mot de passe requis" });
+    }
+
+    const sqlQuery = "SELECT * FROM users WHERE email = ?";
+
+    db.query(sqlQuery, [email], async (err, results) => {
+        if (err) {
+            console.error("Erreur SQL:", err);
+            return res.status(500).json({ message: "Erreur serveur", error: err });
+        }
+
+        if (results.length === 0) {
+            return res.status(401).json({ message: "Email ou mot de passe invalide" });
+        }
+
+        const user = results[0];
+
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ message: "Email ou mot de passe invalide" });
+        }
+
+        const token = jwt.sign(
+            { userId: user.id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: "1h" }
+        );
+
+        res.json({
+            token,
+            user: {
+                id: user.id,
+                email: user.email,
+                role: user.role,
+                nom: user.nom,
+                prenom: user.prenom
+            }
+        });
+    });
+});
+
 const PORT = process.env.SERVER_PORT || 3001;
 
 app.listen(PORT, () => {
