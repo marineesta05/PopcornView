@@ -13,6 +13,8 @@
   "keywords": [],
   "dependencies": {
     "express": "^5.1.0",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0",
+    "node-fetch": "^2.6.7"
   }
 }
