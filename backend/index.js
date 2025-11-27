@@ -1,94 +1,112 @@
+try { require('dotenv').config({ path: require('path').join(__dirname, '.env') }); } catch (e) { }
 const express = require('express');
-const fs = require('fs').promises;
 const path = require('path');
+const fs = require('fs').promises;
 const cors = require('cors');
+
+try {
+  if (typeof fetch === 'undefined') {
+    global.fetch = require('node-fetch');
+  }
+} catch (e) {
+  console.warn('Warning: `node-fetch` is not available. Run `npm install` inside backend to install dependencies.');
+}
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-const DATA_PATH = path.join(__dirname, 'data', 'films.json');
-
-app.use(cors());
+app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
 app.use(express.json());
 
-async function readFilms() {
+
+app.get('/api/films', async (req, res) => {
+  try {
+    const dataPath = path.join(__dirname, 'data', 'films.json');
+    let json = [];
+    try {
+      const text = await fs.readFile(dataPath, 'utf8');
+      json = JSON.parse(text || '[]');
+    } catch (err) {
+      json = [];
+    }
+    res.json(json);
+  } catch (err) {
+    console.error('read films error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+const DATA_PATH = path.join(__dirname, 'data', 'films.json');
+
+async function readStoredFilms() {
   try {
     const txt = await fs.readFile(DATA_PATH, 'utf8');
     return JSON.parse(txt || '[]');
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw err;
+  } catch (e) {
+    return [];
   }
 }
 
-async function writeFilms(arr) {
+async function writeStoredFilms(arr) {
   await fs.mkdir(path.dirname(DATA_PATH), { recursive: true });
   await fs.writeFile(DATA_PATH, JSON.stringify(arr, null, 2), 'utf8');
 }
 
-app.get('/api/films', async (req, res) => {
-  try {
-    const films = await readFilms();
-    res.json(films);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to read films' });
-  }
-});
-
 app.post('/api/films', async (req, res) => {
   try {
-    const films = await readFilms();
-    const film = req.body;
-    if (!film) return res.status(400).json({ error: 'Missing film data' });
-    film._id = film._id || String(Date.now());
-    films.unshift(film);
-    await writeFilms(films);
-    res.status(201).json(film);
+    const payload = req.body;
+    if (!payload || !payload.id) return res.status(400).json({ error: 'Invalid payload, must include id' });
+    const films = await readStoredFilms();
+    const exists = films.find(f => String(f.id) === String(payload.id) || String(f._id) === String(payload._id));
+    if (exists) return res.status(409).json({ error: 'Film already exists' });
+    const item = Object.assign({}, payload);
+    if (!item._id) item._id = String(item.id || Date.now());
+    films.unshift(item);
+    await writeStoredFilms(films);
+    res.status(201).json(item);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to add film' });
+    console.error('post films error', err);
+    res.status(500).json({ error: String(err) });
   }
 });
 
 app.put('/api/films/:id', async (req, res) => {
   try {
-    const id = req.params.id;
-    const films = await readFilms();
-    const idx = films.findIndex(f => String(f._id) === String(id) || String(f.id) === String(id));
-    if (idx === -1) return res.status(404).json({ error: 'Film not found' });
-    const updated = Object.assign({}, films[idx], req.body);
-    films[idx] = updated;
-    await writeFilms(films);
-    res.json(updated);
+    const id = String(req.params.id);
+    const payload = req.body;
+    const films = await readStoredFilms();
+    const idx = films.findIndex(f => String(f._id) === id || String(f.id) === id);
+    if (idx === -1) return res.status(404).json({ error: 'Not found' });
+    films[idx] = Object.assign({}, films[idx], payload);
+    await writeStoredFilms(films);
+    res.json(films[idx]);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to update film' });
+    console.error('put films error', err);
+    res.status(500).json({ error: String(err) });
   }
 });
 
 app.delete('/api/films/:id', async (req, res) => {
   try {
-    const id = req.params.id;
-    const films = await readFilms();
-    const filtered = films.filter(f => String(f._id) !== String(id) && String(f.id) !== String(id));
-    if (filtered.length === films.length) return res.status(404).json({ error: 'Film not found' });
-    await writeFilms(filtered);
-    res.json({ success: true });
+    const id = String(req.params.id);
+    const films = await readStoredFilms();
+    const newFilms = films.filter(f => !(String(f._id) === id || String(f.id) === id));
+    if (newFilms.length === films.length) return res.status(404).json({ error: 'Not found' });
+    await writeStoredFilms(newFilms);
+    res.json({ ok: true });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to delete film' });
+    console.error('delete films error', err);
+    res.status(500).json({ error: String(err) });
   }
 });
 
-// Sync TMDB popular movies (200 films -> pages 1..10)
 app.post('/api/sync-tmdb', async (req, res) => {
   try {
     const apiKey = process.env.TMDB_API_KEY || req.body.apiKey;
-    if (!apiKey) return res.status(400).json({ error: 'TMDB API key required. Set TMDB_API_KEY env or pass { apiKey } in body' });
+    if (!apiKey) return res.status(400).json({ error: 'TMDB API key required' });
 
     const movies = [];
-    const perPage = 20; // TMDB returns 20 per page
-    const pagesNeeded = 10; // 10 * 20 = 200
+    const perPage = 20; 
+    const pagesNeeded = 10; 
 
     for (let page = 1; page <= pagesNeeded; page++) {
       const url = `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=en-US&page=${page}`;
@@ -110,97 +128,55 @@ app.post('/api/sync-tmdb', async (req, res) => {
       }
     }
 
-    await writeFilms(movies);
-    res.json({ count: movies.length });
+    res.json({ count: movies.length, results: movies.slice(0, 200) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: String(err) });
   }
 });
 
-async function ensureFilmsPresent() {
+app.get('/api/tmdb/popular', async (req, res) => {
   try {
-    const existing = await readFilms();
     const apiKey = process.env.TMDB_API_KEY;
-    const forceSync = String(process.env.FORCE_TMDB_SYNC || '').toLowerCase() === 'true';
-
-    if (existing && existing.length > 0 && !forceSync) {
-      console.log('Existing data found — keeping current films. Set FORCE_TMDB_SYNC=true or call POST /api/sync-tmdb to force update.');
-      return;
-    }
-
-    if (apiKey) {
-      console.log('TMDB API key found — attempting to fetch top movies...');
-      const movies = [];
-      const pagesNeeded = 10;
-      for (let page = 1; page <= pagesNeeded; page++) {
-        const url = `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=en-US&page=${page}`;
-        try {
-          const resp = await fetch(url);
-          if (!resp.ok) {
-            console.warn('TMDB request failed on page', page, resp.status);
-            break;
-          }
-          const data = await resp.json();
-          if (Array.isArray(data.results)) {
-            for (const m of data.results) {
-              movies.push({
-                _id: String(m.id),
-                id: m.id,
-                title: m.title,
-                overview: m.overview,
-                poster_path: m.poster_path,
-                release_date: m.release_date,
-                vote_average: m.vote_average
-              });
-            }
-          }
-        } catch (err) {
-          console.warn('TMDB fetch error on page', page, err.message);
-          break;
-        }
-      }
-      if (movies.length >= 1) {
-        await writeFilms(movies.slice(0, 200));
-        console.log(`Saved ${Math.min(movies.length,200)} movies from TMDB to data file.`);
-        return;
-      }
-      console.warn('TMDB fetch returned no movies — falling back to existing data/samples.');
-    }
-
-    if (existing && existing.length >= 200) {
-      console.log('Existing data found (>=200) — keeping current films.');
-      return;
-    }
-
-    console.log('No TMDB key or fetch failed — generating 200 sample films');
-    const samples = [];
-    for (let i = 1; i <= 200; i++) {
-      const year = 1980 + (i % 40);
-      samples.push({
-        _id: `sample-${i}`,
-        id: `sample-${i}`,
-        title: `Sample Movie ${i}`,
-        overview: `This is a generated sample movie entry number ${i}.`,
-        poster_path: null,
-        release_date: `${year}-01-01`,
-        vote_average: (Math.round((Math.random() * 9 + 1) * 10) / 10)
-      });
-    }
-    await writeFilms(samples);
-    console.log('Saved 200 sample movies to data file.');
+    if (!apiKey) return res.status(400).json({ error: 'TMDB_API_KEY not configured on server' });
+    const page = Number(req.query.page || 1);
+    const url = `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=en-US&page=${page}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return res.status(resp.status).json({ error: 'TMDB request failed' });
+    const data = await resp.json();
+    const results = (data.results || []).map(m => ({ id: m.id, title: m.title, overview: m.overview, poster_path: m.poster_path, release_date: m.release_date, vote_average: m.vote_average }));
+    res.json({ page: data.page, total_pages: data.total_pages, results });
   } catch (err) {
-    console.error('ensureFilmsPresent error:', err);
+    console.error('tmdb popular error', err);
+    res.status(500).json({ error: String(err) });
   }
-}
-
-ensureFilmsPresent().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Backend listening on http://localhost:${PORT}`);
-  });
-}).catch(err => {
-  console.error('Failed to ensure films present:', err);
-  app.listen(PORT, () => {
-    console.log(`Backend listening on http://localhost:${PORT}`);
-  });
 });
+
+app.get('/api/tmdb/search', async (req, res) => {
+  try {
+    const apiKey = process.env.TMDB_API_KEY;
+    if (!apiKey) return res.status(400).json({ error: 'TMDB_API_KEY not configured on server' });
+    const q = String(req.query.q || req.query.query || '').trim();
+    if (!q) return res.status(400).json({ error: 'query parameter required (q or query)' });
+    const page = Number(req.query.page || 1);
+    const url = `https://api.themoviedb.org/3/search/movie?api_key=${apiKey}&language=en-US&page=${page}&query=${encodeURIComponent(q)}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return res.status(resp.status).json({ error: 'TMDB request failed' });
+    const data = await resp.json();
+    const results = (data.results || []).map(m => ({ id: m.id, title: m.title, overview: m.overview, poster_path: m.poster_path, release_date: m.release_date, vote_average: m.vote_average }));
+    res.json({ page: data.page, total_pages: data.total_pages, results });
+  } catch (err) {
+    console.error('tmdb search error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get('/', (req, res) => {
+  res.send('PopcornView backend (TMDB-proxy)');
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', tmdb_key_present: !!process.env.TMDB_API_KEY });
+});
+
+module.exports = app;

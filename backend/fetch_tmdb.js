@@ -36,10 +36,17 @@ async function main() {
       await new Promise(r => setTimeout(r, 200));
     }
 
-    const outPath = path.join(__dirname, 'data', 'films.json');
-    await fs.mkdir(path.dirname(outPath), { recursive: true });
-    await fs.writeFile(outPath, JSON.stringify(movies.slice(0,200), null, 2), 'utf8');
-    console.log('Wrote', Math.min(movies.length,200), 'movies to', outPath);
+    const result = movies.slice(0, 200);
+
+    const outIndex = process.argv.indexOf('--out');
+    if (outIndex !== -1 && process.argv.length > outIndex + 1) {
+      const outPath = path.resolve(process.argv[outIndex + 1]);
+      await fs.mkdir(path.dirname(outPath), { recursive: true });
+      await fs.writeFile(outPath, JSON.stringify(result, null, 2), 'utf8');
+      console.log('Wrote', result.length, 'movies to', outPath);
+    } else {
+      console.log(JSON.stringify(result, null, 2));
+    }
   } catch (err) {
     console.error('Error fetching TMDB:', err.message || err);
     process.exit(1);
