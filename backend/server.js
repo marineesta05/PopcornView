@@ -154,3 +154,4 @@ initDb().then(() => {
   console.error('Failed to initialize DB pool', err);
   process.exit(1);
 });
+
