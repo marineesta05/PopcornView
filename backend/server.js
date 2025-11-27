@@ -11,7 +11,7 @@ const cors = require('cors');
 
 try {
   if (typeof fetch === 'undefined') global.fetch = require('node-fetch');
-} catch (e) { /* ignore */ }
+} catch (e) { }
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -71,7 +71,6 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// --- Auth endpoints ---
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { nom, prenom, email, password, role } = req.body || {};
@@ -114,7 +113,6 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
   res.json({ ok: true, user: req.user });
 });
 
-// --- User management endpoints ---
 app.get('/api/users', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT id, nom, prenom, email, role FROM users ORDER BY id DESC');
@@ -178,7 +176,6 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// --- Films stored in data/films.json ---
 const DATA_PATH = path.join(__dirname, 'data', 'films.json');
 
 async function readStoredFilms() {
@@ -332,7 +329,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', tmdb_key_present: !!process.env.TMDB_API_KEY });
 });
 
-// Serve admin UI if built
 const FRONTEND_BUILD = path.join(__dirname, '..', 'frontend', 'build');
 if (fs.existsSync(FRONTEND_BUILD)) {
   app.use(express.static(FRONTEND_BUILD));
@@ -345,7 +341,6 @@ if (fs.existsSync(FRONTEND_BUILD)) {
   });
 }
 
-// Init DB and start server
 initDb().then(() => {
   (async function ensureAdmin() {
     try {
@@ -381,7 +376,6 @@ initDb().then(() => {
   })();
 }).catch(err => {
   console.error('Failed to initialize DB pool (continuing without DB):', err);
-  // Do not exit here; start the server so fetch requests get HTTP errors instead of network errors.
   app.listen(PORT, () => {
     console.log(`Backend server listening on http://localhost:${PORT} (DB not initialized)`);
   });
