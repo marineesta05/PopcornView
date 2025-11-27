@@ -14,7 +14,7 @@ export default function AdminMovies() {
   const [tmdbPage, setTmdbPage] = useState(1);
   const [tmdbTotalPages, setTmdbTotalPages] = useState(1);
   const [tmdbSuggestions, setTmdbSuggestions] = useState([]);
-  const [saveAddedToServer, setSaveAddedToServer] = useState(false);
+  const [saveAddedToServer, setSaveAddedToServer] = useState(true);
   const [backendHasKey, setBackendHasKey] = useState(null); 
 
   useEffect(() => { fetchFilms(); }, []);
@@ -35,7 +35,7 @@ export default function AdminMovies() {
         setBackendHasKey(!!data.tmdb_key_present);
         if (!data.tmdb_key_present) {
           if (!FRONTEND_TMDB_KEY) {
-            setMessage('Warning: No TMDB key on backend. Set `backend/.env` or provide `REACT_APP_TMDB_API_KEY` for client fallback.');
+            setMessage('Warning: No TMDB key on backend');
           }
         } else {
           setMessage('');
@@ -44,7 +44,7 @@ export default function AdminMovies() {
         if (cancelled) return;
         setBackendHasKey(false);
         if (!FRONTEND_TMDB_KEY) {
-          setMessage('Warning: No TMDB key on backend. Set `backend/.env` or provide `REACT_APP_TMDB_API_KEY` for client fallback.');
+          setMessage('Warning: No TMDB key on backend');
         }
       }
 
@@ -163,7 +163,7 @@ export default function AdminMovies() {
       return res.json();
     }
 
-    throw new Error('No TMDB API key available (backend or REACT_APP_TMDB_API_KEY)');
+    throw new Error('No TMDB API key available');
   }
 
   async function addFromTmdb(m, save = true) {
@@ -173,16 +173,24 @@ export default function AdminMovies() {
       const payload = { _id: String(m.id), id: m.id, title: m.title, overview: m.overview, poster_path: m.poster_path, release_date: m.release_date, vote_average: m.vote_average };
       if (save) {
         const res = await fetch(`${API}/api/films`, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
-        if (!res.ok) throw new Error('Add failed');
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Add failed');
+        }
+        const added = await res.json();
         await fetchFilms();
         setMessage('Added to server');
+        setTmdbResults(prev => prev.filter(x => String(x.id) !== String(m.id)));
+        setTmdbSuggestions(prev => prev.filter(x => String(x.id) !== String(m.id)));
       } else {
         setFilms(prev => [payload, ...prev]);
+        setTmdbResults(prev => prev.filter(x => String(x.id) !== String(m.id)));
+        setTmdbSuggestions(prev => prev.filter(x => String(x.id) !== String(m.id)));
         setMessage('Added locally (not saved)');
       }
       setTimeout(()=>setMessage(''),2000);
     } catch (err) {
-      setMessage('Failed to add');
+      setMessage('Failed to add: ' + String(err.message || err));
     }
   }
 
@@ -216,9 +224,7 @@ export default function AdminMovies() {
   return (
     <div style={{ padding: 20 }}>
       <h2>Admin — Films</h2>
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ fontStyle: 'italic' }}>Use the TMDB browser to add films to the catalog. Added films are stored locally and persist across restarts.</div>
-      </div>
+      
       <div style={{ marginBottom: 10, color: 'green' }}>{message}</div>
 
       <div style={{ marginBottom: 16, padding: 8, border: '1px solid #ddd' }}>
