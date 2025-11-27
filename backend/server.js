@@ -5,10 +5,20 @@ const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
+const fs = require('fs');
+const fsp = require('fs').promises;
+const cors = require('cors');
 
-const app = require('./index.js');
+try {
+  if (typeof fetch === 'undefined') global.fetch = require('node-fetch');
+} catch (e) { /* ignore */ }
+
+const app = express();
+const PORT = process.env.PORT || 4000;
 
 app.use(cookieParser());
+app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
+app.use(express.json());
 
 const DB_CONFIG = {
   host: process.env.DB_HOST || '127.0.0.1',
@@ -43,7 +53,7 @@ async function getUserById(id) {
 
 async function authenticateToken(req, res, next) {
   try {
-    const token = req.cookies && req.cookies.token || (req.headers.authorization || '').replace(/^Bearer\s+/, '');
+    const token = (req.cookies && req.cookies.token) || (req.headers.authorization || '').replace(/^Bearer\s+/, '');
     if (!token) return res.status(401).json({ error: 'Missing token' });
     const secret = process.env.JWT_SECRET || 'replace-me-with-secret';
     const payload = jwt.verify(token, secret);
@@ -61,12 +71,13 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// --- Auth endpoints ---
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { nom, prenom, email, password, role } = req.body || {};
     if (!email || !password || !nom || !prenom) return res.status(400).json({ error: 'nom, prenom, email and password required' });
-    const existing = await getUserByEmail(email);
-    if (existing) return res.status(409).json({ error: 'User exists' });
+    const existing = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    if (existing && existing[0] && existing[0].length > 0) return res.status(409).json({ error: 'User exists' });
     const hash = await bcrypt.hash(password, 10);
     const [result] = await pool.query('INSERT INTO users (nom, prenom, email, role, password) VALUES (?, ?, ?, ?, ?)', [nom, prenom, email, role || 'user', hash]);
     const user = { id: result.insertId, nom, prenom, email, role: role || 'user' };
@@ -103,7 +114,225 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
   res.json({ ok: true, user: req.user });
 });
 
-const fs = require('fs');
+// --- User management endpoints ---
+app.get('/api/users', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT id, nom, prenom, email, role FROM users ORDER BY id DESC');
+    res.json(rows || []);
+  } catch (err) {
+    console.error('GET /api/users error', err);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const { nom, prenom, email, password, role } = req.body || {};
+    if (!nom || !prenom || !email || !password) return res.status(400).json({ error: 'nom, prenom, email and password required' });
+    const [exists] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    if (exists && exists.length > 0) return res.status(409).json({ error: 'User exists' });
+    const hash = await bcrypt.hash(password, 10);
+    const [r] = await pool.query('INSERT INTO users (nom, prenom, email, role, password) VALUES (?, ?, ?, ?, ?)', [nom, prenom, email, role || 'user', hash]);
+    res.status(201).json({ id: r.insertId, nom, prenom, email, role: role || 'user' });
+  } catch (err) {
+    console.error('POST /api/users error', err);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { nom, prenom, email, password, role } = req.body || {};
+    const fields = [];
+    const values = [];
+    if (nom !== undefined) { fields.push('nom = ?'); values.push(nom); }
+    if (prenom !== undefined) { fields.push('prenom = ?'); values.push(prenom); }
+    if (email !== undefined) { fields.push('email = ?'); values.push(email); }
+    if (role !== undefined) { fields.push('role = ?'); values.push(role); }
+    if (password !== undefined && password !== '') {
+      const hash = await bcrypt.hash(password, 10);
+      fields.push('password = ?');
+      values.push(hash);
+    }
+    if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    values.push(id);
+    const sql = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
+    await pool.query(sql, values);
+    const [rows] = await pool.query('SELECT id, nom, prenom, email, role FROM users WHERE id = ?', [id]);
+    res.json(rows[0] || null);
+  } catch (err) {
+    console.error('PUT /api/users/:id error', err);
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    await pool.query('DELETE FROM users WHERE id = ?', [id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/users/:id error', err);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// --- Films stored in data/films.json ---
+const DATA_PATH = path.join(__dirname, 'data', 'films.json');
+
+async function readStoredFilms() {
+  try {
+    const txt = await fsp.readFile(DATA_PATH, 'utf8');
+    return JSON.parse(txt || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+async function writeStoredFilms(arr) {
+  await fsp.mkdir(path.dirname(DATA_PATH), { recursive: true });
+  await fsp.writeFile(DATA_PATH, JSON.stringify(arr, null, 2), 'utf8');
+}
+
+app.get('/api/films', async (req, res) => {
+  try {
+    const films = await readStoredFilms();
+    res.json(films);
+  } catch (err) {
+    console.error('read films error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post('/api/films', async (req, res) => {
+  try {
+    const payload = req.body;
+    if (!payload || (!payload.id && !payload._id)) return res.status(400).json({ error: 'Invalid payload, must include id or _id' });
+    const films = await readStoredFilms();
+    const exists = films.find(f => String(f.id) === String(payload.id) || String(f._id) === String(payload._id));
+    if (exists) return res.status(409).json({ error: 'Film already exists' });
+    const item = Object.assign({}, payload);
+    if (!item._id) item._id = String(item.id || Date.now());
+    films.unshift(item);
+    await writeStoredFilms(films);
+    res.status(201).json(item);
+  } catch (err) {
+    console.error('post films error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.put('/api/films/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const payload = req.body;
+    const films = await readStoredFilms();
+    const idx = films.findIndex(f => String(f._id) === id || String(f.id) === id);
+    if (idx === -1) return res.status(404).json({ error: 'Not found' });
+    films[idx] = Object.assign({}, films[idx], payload);
+    await writeStoredFilms(films);
+    res.json(films[idx]);
+  } catch (err) {
+    console.error('put films error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.delete('/api/films/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const films = await readStoredFilms();
+    const newFilms = films.filter(f => !(String(f._id) === id || String(f.id) === id));
+    if (newFilms.length === films.length) return res.status(404).json({ error: 'Not found' });
+    await writeStoredFilms(newFilms);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('delete films error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post('/api/sync-tmdb', async (req, res) => {
+  try {
+    const apiKey = process.env.TMDB_API_KEY || req.body.apiKey;
+    if (!apiKey) return res.status(400).json({ error: 'TMDB API key required' });
+
+    const movies = [];
+    const pagesNeeded = 10;
+
+    for (let page = 1; page <= pagesNeeded; page++) {
+      const url = `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=en-US&page=${page}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`TMDB request failed: ${resp.status}`);
+      const data = await resp.json();
+      if (Array.isArray(data.results)) {
+        for (const m of data.results) {
+          movies.push({
+            _id: String(m.id),
+            id: m.id,
+            title: m.title,
+            overview: m.overview,
+            poster_path: m.poster_path,
+            release_date: m.release_date,
+            vote_average: m.vote_average
+          });
+        }
+      }
+    }
+
+    res.json({ count: movies.length, results: movies.slice(0, 200) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get('/api/tmdb/popular', async (req, res) => {
+  try {
+    const apiKey = process.env.TMDB_API_KEY;
+    if (!apiKey) return res.status(400).json({ error: 'TMDB_API_KEY not configured on server' });
+    const page = Number(req.query.page || 1);
+    const url = `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=en-US&page=${page}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return res.status(resp.status).json({ error: 'TMDB request failed' });
+    const data = await resp.json();
+    const results = (data.results || []).map(m => ({ id: m.id, title: m.title, overview: m.overview, poster_path: m.poster_path, release_date: m.release_date, vote_average: m.vote_average }));
+    res.json({ page: data.page, total_pages: data.total_pages, results });
+  } catch (err) {
+    console.error('tmdb popular error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get('/api/tmdb/search', async (req, res) => {
+  try {
+    const apiKey = process.env.TMDB_API_KEY;
+    if (!apiKey) return res.status(400).json({ error: 'TMDB_API_KEY not configured on server' });
+    const q = String(req.query.q || req.query.query || '').trim();
+    if (!q) return res.status(400).json({ error: 'query parameter required (q or query)' });
+    const page = Number(req.query.page || 1);
+    const url = `https://api.themoviedb.org/3/search/movie?api_key=${apiKey}&language=en-US&page=${page}&query=${encodeURIComponent(q)}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return res.status(resp.status).json({ error: 'TMDB request failed' });
+    const data = await resp.json();
+    const results = (data.results || []).map(m => ({ id: m.id, title: m.title, overview: m.overview, poster_path: m.poster_path, release_date: m.release_date, vote_average: m.vote_average }));
+    res.json({ page: data.page, total_pages: data.total_pages, results });
+  } catch (err) {
+    console.error('tmdb search error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get('/', (req, res) => {
+  res.send('PopcornView backend (TMDB-proxy)');
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', tmdb_key_present: !!process.env.TMDB_API_KEY });
+});
+
+// Serve admin UI if built
 const FRONTEND_BUILD = path.join(__dirname, '..', 'frontend', 'build');
 if (fs.existsSync(FRONTEND_BUILD)) {
   app.use(express.static(FRONTEND_BUILD));
@@ -116,7 +345,7 @@ if (fs.existsSync(FRONTEND_BUILD)) {
   });
 }
 
-const PORT = process.env.PORT || 4000;
+// Init DB and start server
 initDb().then(() => {
   (async function ensureAdmin() {
     try {
@@ -151,7 +380,10 @@ initDb().then(() => {
     });
   })();
 }).catch(err => {
-  console.error('Failed to initialize DB pool', err);
-  process.exit(1);
+  console.error('Failed to initialize DB pool (continuing without DB):', err);
+  // Do not exit here; start the server so fetch requests get HTTP errors instead of network errors.
+  app.listen(PORT, () => {
+    console.log(`Backend server listening on http://localhost:${PORT} (DB not initialized)`);
+  });
 });
 

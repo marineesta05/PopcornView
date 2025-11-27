@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import AdminHeader from './AdminHeader';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:4000';
 const FRONTEND_TMDB_KEY = process.env.REACT_APP_TMDB_API_KEY || '';
@@ -222,96 +223,101 @@ export default function AdminMovies() {
   }
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Admin — Films</h2>
-      
-      <div style={{ marginBottom: 10, color: 'green' }}>{message}</div>
+    <div>
+      <AdminHeader title="Admin — Films" />
+      <div style={{ padding: 20 }}>
+        <h2>Admin — Films</h2>
+        <div style={{ marginBottom: 12 }}>
+          <button onClick={() => { window.location.href = '/admin/users'; }} style={{ marginRight: 8 }}>Accéder aux utilisateurs</button>
+        </div>
 
-      <div style={{ marginBottom: 16, padding: 8, border: '1px solid #ddd' }}>
-        <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <label style={{ marginRight: 8 }}>Catalog:</label>
-          <button onClick={() => { setTmdbMode('popular'); setTmdbPage(1); fetchPopular(1); }}>Popular</button>
-          <button onClick={() => { setTmdbMode('search'); setTmdbResults([]); setTmdbPage(1); }}>Search</button>
-          <div style={{ marginLeft: 'auto' }}>
-            <span style={{ color: 'green' }}>{message}</span>
+        <div style={{ marginBottom: 10, color: 'green' }}>{message}</div>
+
+        <div style={{ marginBottom: 16, padding: 8, border: '1px solid #ddd' }}>
+          <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <label style={{ marginRight: 8 }}>Catalog:</label>
+            <button onClick={() => { setTmdbMode('popular'); setTmdbPage(1); fetchPopular(1); }}>Popular</button>
+            <button onClick={() => { setTmdbMode('search'); setTmdbResults([]); setTmdbPage(1); }}>Search</button>
+            <div style={{ marginLeft: 'auto' }}>
+              <span style={{ color: 'green' }}>{message}</span>
+            </div>
+          </div>
+
+          {tmdbMode === 'search' && (
+            <div style={{ marginBottom: 8 }}>
+              <input placeholder="Search TMDB" value={tmdbQuery} onChange={e=>setTmdbQuery(e.target.value)} style={{ width: 360 }} />
+              <button onClick={()=>searchTmdb(tmdbQuery, 1)} style={{ marginLeft: 8 }}>Search</button>
+              <label style={{ marginLeft: 12, fontSize: 13 }}>
+                <input type="checkbox" checked={saveAddedToServer} onChange={e=>setSaveAddedToServer(e.target.checked)} style={{ marginRight: 6 }} />
+                Save added to server
+              </label>
+
+              {tmdbSuggestions.length > 0 && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {tmdbSuggestions.map(s => (
+                    <div key={s.id} onClick={() => { addFromTmdb(s, saveAddedToServer); setTmdbQuery(''); setTmdbSuggestions([]); }} style={{ cursor: 'pointer', width: 160, display: 'flex', gap: 8, alignItems: 'center', border: '1px solid #eee', padding: 6, background: '#fff' }}>
+                      {s.poster_path ? <img src={`https://image.tmdb.org/t/p/w92${s.poster_path}`} alt={s.title} style={{ width: 56, height: 84, objectFit: 'cover' }} /> : <div style={{ width:56, height:84, background:'#ccc' }} />}
+                      <div style={{ fontSize: 13 }}>{s.title}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {loading ? <div>Loading...</div> : tmdbResults.map(m => (
+                <div key={m.id} style={{ width: 140, textAlign: 'center', border: '1px solid #eee', padding: 6 }}>
+                  {m.poster_path ? <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} style={{ width: '100%' }} /> : <div style={{ width:'100%', height:210, background:'#ccc' }} />}
+                  <div style={{ fontSize: 12, marginTop: 6 }}>{m.title}</div>
+                  <button onClick={()=>addFromTmdb(m, saveAddedToServer)} style={{ marginTop:6 }}>Add</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            <button onClick={() => {
+              const newPage = Math.max(1, tmdbPage - 1);
+              setTmdbPage(newPage);
+              if (tmdbMode === 'popular') fetchPopular(newPage); else searchTmdb(tmdbQuery, newPage);
+            }} disabled={tmdbPage <= 1}>Prev</button>
+            <span style={{ margin: '0 8px' }}>Page {tmdbPage} / {tmdbTotalPages}</span>
+            <button onClick={() => {
+              const newPage = Math.min(tmdbTotalPages || tmdbPage + 1, tmdbPage + 1);
+              setTmdbPage(newPage);
+              if (tmdbMode === 'popular') fetchPopular(newPage); else searchTmdb(tmdbQuery, newPage);
+            }} disabled={tmdbPage >= tmdbTotalPages}>Next</button>
           </div>
         </div>
 
-        {tmdbMode === 'search' && (
-          <div style={{ marginBottom: 8 }}>
-            <input placeholder="Search TMDB" value={tmdbQuery} onChange={e=>setTmdbQuery(e.target.value)} style={{ width: 360 }} />
-            <button onClick={()=>searchTmdb(tmdbQuery, 1)} style={{ marginLeft: 8 }}>Search</button>
-            <label style={{ marginLeft: 12, fontSize: 13 }}>
-              <input type="checkbox" checked={saveAddedToServer} onChange={e=>setSaveAddedToServer(e.target.checked)} style={{ marginRight: 6 }} />
-              Save added to server
-            </label>
-
-            {}
-                {tmdbSuggestions.length > 0 && (
-              <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {tmdbSuggestions.map(s => (
-                  <div key={s.id} onClick={() => { addFromTmdb(s, saveAddedToServer); setTmdbQuery(''); setTmdbSuggestions([]); }} style={{ cursor: 'pointer', width: 160, display: 'flex', gap: 8, alignItems: 'center', border: '1px solid #eee', padding: 6, background: '#fff' }}>
-                    {s.poster_path ? <img src={`https://image.tmdb.org/t/p/w92${s.poster_path}`} alt={s.title} style={{ width: 56, height: 84, objectFit: 'cover' }} /> : <div style={{ width:56, height:84, background:'#ccc' }} />}
-                    <div style={{ fontSize: 13 }}>{s.title}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {loading ? <div>Loading...</div> : tmdbResults.map(m => (
-              <div key={m.id} style={{ width: 140, textAlign: 'center', border: '1px solid #eee', padding: 6 }}>
-                {m.poster_path ? <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} style={{ width: '100%' }} /> : <div style={{ width:'100%', height:210, background:'#ccc' }} />}
-                <div style={{ fontSize: 12, marginTop: 6 }}>{m.title}</div>
-                    <button onClick={()=>addFromTmdb(m, saveAddedToServer)} style={{ marginTop:6 }}>Add</button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginTop: 10 }}>
-          <button onClick={() => {
-            const newPage = Math.max(1, tmdbPage - 1);
-            setTmdbPage(newPage);
-            if (tmdbMode === 'popular') fetchPopular(newPage); else searchTmdb(tmdbQuery, newPage);
-          }} disabled={tmdbPage <= 1}>Prev</button>
-          <span style={{ margin: '0 8px' }}>Page {tmdbPage} / {tmdbTotalPages}</span>
-          <button onClick={() => {
-            const newPage = Math.min(tmdbTotalPages || tmdbPage + 1, tmdbPage + 1);
-            setTmdbPage(newPage);
-            if (tmdbMode === 'popular') fetchPopular(newPage); else searchTmdb(tmdbQuery, newPage);
-          }} disabled={tmdbPage >= tmdbTotalPages}>Next</button>
-        </div>
-      </div>
-
-      {loading ? <div>Loading...</div> : (
-        <table border="1" cellPadding="6">
-          <thead>
-            <tr>
-              <th>Title</th>
-              <th>Release</th>
-              <th>Rating</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {films.map(f => (
-              <tr key={f._id || f.id}>
-                <td>{f.title}</td>
-                <td>{f.release_date}</td>
-                <td>{f.vote_average}</td>
-                <td>
-                  <button onClick={()=>editFilmPrompt(f)}>Edit</button>
-                  <button onClick={()=>removeFilm(f._id || f.id)} style={{ marginLeft:8 }}>Delete</button>
-                </td>
+        {loading ? <div>Loading...</div> : (
+          <table border="1" cellPadding="6">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Release</th>
+                <th>Rating</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            </thead>
+            <tbody>
+              {films.map(f => (
+                <tr key={f._id || f.id}>
+                  <td>{f.title}</td>
+                  <td>{f.release_date}</td>
+                  <td>{f.vote_average}</td>
+                  <td>
+                    <button onClick={()=>editFilmPrompt(f)}>Edit</button>
+                    <button onClick={()=>removeFilm(f._id || f.id)} style={{ marginLeft:8 }}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
