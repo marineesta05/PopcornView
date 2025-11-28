@@ -5,21 +5,34 @@
   "license": "ISC",
   "author": "",
   "type": "commonjs",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
+<<<<<<< HEAD
     "start": "node index.js",
+=======
+    "start": "node server.js",
+>>>>>>> 173e75054d07f4e0c129abc68f5740577f23e7d0
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "dependencies": {
-    "bcrypt": "^6.0.0",
-    "bcryptjs": "^3.0.3",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
+<<<<<<< HEAD
     "dotenv": "^16.0.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.15.3",
     "node-fetch": "^2.6.7",
     "react-router-dom": "^7.9.6"
+=======
+    "debug": "^2.6.9",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.15.3",
+    "node-fetch": "^2.6.7"
+>>>>>>> 173e75054d07f4e0c129abc68f5740577f23e7d0
   }
 }

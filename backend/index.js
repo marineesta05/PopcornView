@@ -14,9 +14,8 @@ try {
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-app.use(cors());
+app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
 app.use(express.json());
-app.use(cors());
 
 
 app.get('/api/films', async (req, res) => {
@@ -180,6 +179,4 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', tmdb_key_present: !!process.env.TMDB_API_KEY });
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend (TMDB-proxy mode) listening on http://localhost:${PORT}`);
-});
+module.exports = app;
