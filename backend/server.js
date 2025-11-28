@@ -295,8 +295,12 @@ app.delete('/api/films/:id', async (req, res) => {
     const id = String(req.params.id);
     const films = await readStoredFilms();
     const idx = films.findIndex(f => String(f._id) === id || String(f.id) === id);
-    if (idx === -1) return res.status(404).json({ error: 'Not found' });
-    films[idx] = Object.assign({}, films[idx], { deleted: true });
+    if (idx === -1) {
+      const item = { _id: id, id: isNaN(Number(id)) ? id : Number(id), deleted: true };
+      films.unshift(item);
+    } else {
+      films[idx] = Object.assign({}, films[idx], { deleted: true });
+    }
     await writeStoredFilms(films);
     res.json({ ok: true });
   } catch (err) {
@@ -511,17 +515,19 @@ initDb().then(() => {
       const apiKey = process.env.TMDB_API_KEY;
       if (apiKey && preloadMode === 'always') {
         try {
-          console.log('TMDB_PRELOAD_MODE=always — fetching and overwriting stored films from TMDB...');
-          const movies = await fetchAndStoreTMDB(apiKey, { pagesNeeded: 10 });
-          await writeStoredFilms(movies);
-          console.log(`Preloaded ${movies.length} films from TMDB to data/films.json`);
+          const existing = await readStoredFilms();
+          if (!Array.isArray(existing) || existing.length === 0) {
+            console.log('TMDB_PRELOAD_MODE=always and storage empty — fetching and writing stored films from TMDB...');
+            const movies = await fetchAndStoreTMDB(apiKey, { pagesNeeded: 10 });
+            await writeStoredFilms(movies);
+            console.log(`Preloaded ${movies.length} films from TMDB to data/films.json`);
+          } else {
+            console.log('TMDB_PRELOAD_MODE=always but storage already contains data — skipping preload to preserve deletions.');
+          }
         } catch (e) {
           console.error('Failed to preload TMDB catalog on startup:', e && e.message ? e.message : e);
         }
-        try { await removeDeletedFlagsFromStored(); } catch (e) { }
       }
-
-      try { await removeDeletedFlagsFromStored(); } catch (e) { }
     } catch (e) {
       console.error('Error ensuring deleted films storage exists:', e && e.message ? e.message : e);
     }
