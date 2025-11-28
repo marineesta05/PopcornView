@@ -16,10 +16,13 @@ export default function AdminMovies() {
   const [tmdbTotalPages, setTmdbTotalPages] = useState(1);
   const [tmdbSuggestions, setTmdbSuggestions] = useState([]);
   const [backendHasKey, setBackendHasKey] = useState(null); 
+  const [deletedFilms, setDeletedFilms] = useState([]);
 
-  useEffect(() => { fetchFilms(); }, []);
+  useEffect(() => { fetchFilms(); fetchDeletedFilms(); }, []);
 
-  useEffect(() => { if (tmdbMode === 'popular') fetchPopular(tmdbPage); }, [tmdbMode, tmdbPage]);
+  useEffect(() => { fetchPopular(1); }, []);
+
+  useEffect(() => { fetchPopular(tmdbPage); }, [tmdbPage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,17 +36,22 @@ export default function AdminMovies() {
         const data = await res.json();
         if (cancelled) return;
         setBackendHasKey(!!data.tmdb_key_present);
-        if (!data.tmdb_key_present) {
-          if (!FRONTEND_TMDB_KEY) {
+        if (data.tmdb_key_present) {
+          setMessage('');
+          try { if (!cancelled) await fetchPopular(1); } catch (e) {  }
+        } else {
+          if (FRONTEND_TMDB_KEY) {
+            try { if (!cancelled) await fetchPopular(1); } catch (e) {  }
+          } else {
             setMessage('Warning: No TMDB key on backend');
           }
-        } else {
-          setMessage('');
         }
       } catch (err) {
         if (cancelled) return;
         setBackendHasKey(false);
-        if (!FRONTEND_TMDB_KEY) {
+        if (FRONTEND_TMDB_KEY) {
+          try { if (!cancelled) await fetchPopular(1); } catch (e) {  }
+        } else {
           setMessage('Warning: No TMDB key on backend');
         }
       }
@@ -70,6 +78,17 @@ export default function AdminMovies() {
     } catch (err) {
       setMessage('Failed to load films: ' + String(err.message || err));
     } finally { setLoading(false); }
+  }
+
+  async function fetchDeletedFilms() {
+    try {
+      const res = await fetch(`${API}/api/films/deleted`);
+      if (!res.ok) return setDeletedFilms([]);
+      const data = await res.json();
+      setDeletedFilms(data || []);
+    } catch (e) {
+      setDeletedFilms([]);
+    }
   }
 
   async function fetchPopular(page = 1) {
@@ -139,50 +158,56 @@ export default function AdminMovies() {
   async function tmdbFetch(mode, opts = {}) {
     const page = opts.page || 1;
     const q = opts.q || '';
-
-    if (backendHasKey === true) {
+    try {
       const path = mode === 'popular' ? `/api/tmdb/popular?page=${page}` : `/api/tmdb/search?q=${encodeURIComponent(q)}&page=${page}`;
       const res = await fetch(`${API}${path}`);
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `HTTP ${res.status}`);
+      if (res.ok) return res.json();
+      const txt = await res.text();
+      if (!FRONTEND_TMDB_KEY) {
+        return { page: 1, total_pages: 1, results: [] };
       }
-      return res.json();
+    } catch (err) {
     }
 
     if (FRONTEND_TMDB_KEY) {
-      const base = 'https://api.themoviedb.org/3';
-      const url = mode === 'popular'
-        ? `${base}/movie/popular?api_key=${FRONTEND_TMDB_KEY}&language=en-US&page=${page}`
-        : `${base}/search/movie?api_key=${FRONTEND_TMDB_KEY}&language=en-US&page=${page}&query=${encodeURIComponent(q)}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `HTTP ${res.status}`);
+      try {
+        const base = 'https://api.themoviedb.org/3';
+        const url = mode === 'popular'
+          ? `${base}/movie/popular?api_key=${FRONTEND_TMDB_KEY}&language=en-US&page=${page}`
+          : `${base}/search/movie?api_key=${FRONTEND_TMDB_KEY}&language=en-US&page=${page}&query=${encodeURIComponent(q)}`;
+        const res2 = await fetch(url);
+        if (!res2.ok) {
+          const text = await res2.text();
+          throw new Error(text || `HTTP ${res2.status}`);
+        }
+        return res2.json();
+      } catch (err) {
+        return { page: 1, total_pages: 1, results: [] };
       }
-      return res.json();
     }
 
-    throw new Error('No TMDB API key available');
+    return { page: 1, total_pages: 1, results: [] };
   }
 
   async function addFromTmdb(m, save = true) {
     try {
-      const exists = films.find(f => String(f.id) === String(m.id) || String(f._id) === String(m.id));
-      if (exists) { setMessage('Already added'); setTimeout(()=>setMessage(''),1500); return; }
-      const payload = { _id: String(m.id), id: m.id, title: m.title, overview: m.overview, poster_path: m.poster_path, release_date: m.release_date, vote_average: m.vote_average };
-      if (save) {
-        const res = await fetch(`${API}/api/films`, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || 'Add failed');
+      const idStr = String(m.id);
+      if (deletedIds.has(idStr)) {
+        if (save) {
+          const res = await fetch(`${API}/api/films/${idStr}/restore`, { method: 'POST' });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || 'Restore failed');
+          }
+          await fetchDeletedFilms();
+          await fetchPopular(tmdbPage);
+          setMessage('Restored'); setTimeout(()=>setMessage(''),1500);
+        } else {
+          setDeletedFilms(prev => prev.filter(x => String(x._id || x.id) !== idStr));
+          setMessage('Restored locally'); setTimeout(()=>setMessage(''),1500);
         }
-        const added = await res.json();
-        await fetchFilms();
-        // setMessage('Added to server');
       } else {
-        setFilms(prev => [payload, ...prev]);
-        setMessage('Added locally (not saved)');
+        setMessage('Film is not marked deleted'); setTimeout(()=>setMessage(''),1500);
       }
       setTimeout(()=>setMessage(''),2000);
     } catch (err) {
@@ -196,10 +221,22 @@ export default function AdminMovies() {
       const res = await fetch(`${API}/api/films/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Delete failed');
       await fetchFilms();
-      // setMessage('Deleted');
+      await fetchDeletedFilms();
       setTimeout(()=>setMessage(''),2000);
     } catch (err) {
       setMessage('Failed to delete');
+    }
+  }
+
+  async function restoreFilm(id) {
+    try {
+      const res = await fetch(`${API}/api/films/${id}/restore`, { method: 'POST' });
+      if (!res.ok) throw new Error('Restore failed');
+      await fetchFilms();
+      await fetchDeletedFilms();
+      setTimeout(()=>setMessage(''),1500);
+    } catch (err) {
+      setMessage('Failed to restore');
     }
   }
 
@@ -217,12 +254,40 @@ export default function AdminMovies() {
     }
   }
 
+  const storedIds = new Set((films || []).map(f => String(f._id || f.id)));
+  const deletedIds = new Set((deletedFilms || []).map(f => String(f._id || f.id)));
+
+  async function deleteTmdbMovie(m) {
+    try {
+      const idStr = String(m.id);
+      if (storedIds.has(idStr)) {
+        const res = await fetch(`${API}/api/films/${idStr}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Delete failed');
+      } else {
+        const payload = { _id: String(m.id), id: m.id, title: m.title, overview: m.overview, poster_path: m.poster_path, release_date: m.release_date, vote_average: m.vote_average };
+        const res = await fetch(`${API}/api/films/mark-deleted`, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error('Mark deleted failed');
+      }
+      await fetchDeletedFilms();
+      setMessage('Deleted');
+      setTimeout(()=>setMessage(''),1200);
+    } catch (err) {
+      setMessage('Failed to delete'); setTimeout(()=>setMessage(''),2000);
+    }
+  }
+
+  const displayedTmdb = (tmdbResults || []).filter(m => {
+    if (!tmdbQuery) return true;
+    const t = (m.title || '').toLowerCase();
+    return t.indexOf((tmdbQuery || '').toLowerCase()) !== -1;
+  });
+
   return (
     <div>
       <AdminHeader title="Admin — Films" />
       <div style={{ padding: 20 }}>
         <h2>Admin — Films</h2>
-        <div style={{ marginBottom: 12, color: '#333' }}>Les films sont pré-chargés depuis l'API TMDB par défaut. L'ajout manuel est désactivé — vous pouvez uniquement supprimer des films.</div>
+        <div style={{ marginBottom: 12, color: '#333' }}></div>
         <div style={{ marginBottom: 12 }}>
           <button onClick={() => { window.location.href = '/admin/users'; }} style={{ marginRight: 8 }}>Accéder aux utilisateurs</button>
         </div>
@@ -230,43 +295,57 @@ export default function AdminMovies() {
         <div style={{ marginBottom: 10, color: 'green' }}>{message}</div>
 
         <div style={{ marginBottom: 16, padding: 8, border: '1px solid #ddd' }}>
-          <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
             <label style={{ marginRight: 8 }}>Catalog:</label>
-            <button onClick={() => { setTmdbMode('popular'); setTmdbPage(1); fetchPopular(1); }}>Popular</button>
-            <button onClick={() => { setTmdbMode('search'); setTmdbResults([]); setTmdbPage(1); }}>Search</button>
+            <input id="tmdb-search-input" placeholder="Search a movie" value={tmdbQuery} onChange={e=>setTmdbQuery(e.target.value)} onKeyDown={e=>{ if (e.key === 'Enter') e.preventDefault(); }} style={{ width: 360, marginLeft: 8 }} />
             <div style={{ marginLeft: 'auto' }}>
               <span style={{ color: 'green' }}>{message}</span>
             </div>
           </div>
 
-          {tmdbMode === 'search' && (
-            <div style={{ marginBottom: 8 }}>
-              <input placeholder="Search a movie" value={tmdbQuery} onChange={e=>setTmdbQuery(e.target.value)} style={{ width: 360 }} />
-              <button onClick={()=>searchTmdb(tmdbQuery, 1)} style={{ marginLeft: 8 }}>Search</button>
-
-                  {tmdbSuggestions.length > 0 && (
-                <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {tmdbSuggestions.map(s => (
-                    <div key={s.id} style={{ width: 160, display: 'flex', gap: 8, alignItems: 'center', border: '1px solid #eee', padding: 6, background: '#fff' }}>
-                      {s.poster_path ? <img src={`https://image.tmdb.org/t/p/w92${s.poster_path}`} alt={s.title} style={{ width: 56, height: 84, objectFit: 'cover' }} /> : <div style={{ width:56, height:84, background:'#ccc' }} />}
-                      <div style={{ fontSize: 13 }}>{s.title}</div>
-                    </div>
-                  ))}
+          {tmdbSuggestions.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {tmdbSuggestions.map(s => (
+                <div key={s.id} style={{ width: 160, display: 'flex', gap: 8, alignItems: 'center', border: '1px solid #eee', padding: 6, background: '#fff' }}>
+                  {s.poster_path ? <img src={`https://image.tmdb.org/t/p/w92${s.poster_path}`} alt={s.title} style={{ width: 56, height: 84, objectFit: 'cover' }} /> : <div style={{ width:56, height:84, background:'#ccc' }} />}
+                  <div style={{ fontSize: 13 }}>{s.title}</div>
                 </div>
-              )}
+              ))}
             </div>
           )}
 
           <div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {loading ? <div>Loading...</div> : tmdbResults.map(m => (
-                <div key={m.id} style={{ width: 140, textAlign: 'center', border: '1px solid #eee', padding: 6 }}>
-                  {m.poster_path ? <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} style={{ width: '100%' }} /> : <div style={{ width:'100%', height:210, background:'#ccc' }} />}
-                  <div style={{ fontSize: 12, marginTop: 6 }}>{m.title}</div>
-                  <div style={{ marginTop:6, color: '#777', fontSize: 12 }}>Ajout désactivé</div>
-                </div>
-              ))}
-            </div>
+            {loading ? <div>Loading...</div> : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                {displayedTmdb.map(m => {
+                  const idStr = String(m.id);
+                  const isDeleted = deletedIds.has(idStr);
+                  return (
+                    <div key={m.id} style={{ width: 160, border: '1px solid #eee', padding: 8, background: '#fff' }}>
+                      <div style={{ height: 224, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                        {m.poster_path ? (
+                          <img src={`https://image.tmdb.org/t/p/w185${m.poster_path}`} alt={m.title} style={{ width: '100%', height: 220, objectFit: 'cover' }} />
+                        ) : (
+                          <div style={{ width: '100%', height: 220, background: '#ccc' }} />
+                        )}
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginTop: 8 }}>{m.title}</div>
+                      <div style={{ fontSize: 12, color: '#666' }}>{m.release_date} — {m.vote_average}</div>
+                      <div style={{ marginTop: 8 }}>
+                        {isDeleted ? (
+                          <button disabled style={{ color: '#777', opacity: 0.7 }}>Deleted</button>
+                        ) : (
+                          <button onClick={() => deleteTmdbMovie(m)}>Delete</button>
+                        )}
+                        {isDeleted && (
+                          <button onClick={() => addFromTmdb(m, true)} style={{ marginLeft: 8 }}>Add back</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: 10 }}>
@@ -284,32 +363,39 @@ export default function AdminMovies() {
           </div>
         </div>
 
-        {loading ? <div>Loading...</div> : (
-          <table border="1" cellPadding="6">
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Release</th>
-                <th>Rating</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {films.map(f => (
-                <tr key={f._id || f.id}>
-                  <td>{f.title}</td>
-                  <td>{f.release_date}</td>
-                  <td>{f.vote_average}</td>
-                  <td>
-                    <button onClick={()=>editFilmPrompt(f)}>Edit</button>
-                    <button onClick={()=>removeFilm(f._id || f.id)} style={{ marginLeft:8 }}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {}
+          <div style={{ marginTop: 20 }}>
+            <h3>Deleted films</h3>
+            {(!deletedFilms || deletedFilms.length === 0) ? (
+              <div>No deleted films.</div>
+            ) : (
+              <table border="1" cellPadding="6">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Release</th>
+                    <th>Rating</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deletedFilms.map(f => (
+                    <tr key={f._id || f.id}>
+                      <td>{f.title}</td>
+                      <td>{f.release_date}</td>
+                      <td>{f.vote_average}</td>
+                      <td>
+                        <button onClick={() => restoreFilm(f._id || f.id)}>Add back</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
       </div>
     </div>
   );
 }
+
