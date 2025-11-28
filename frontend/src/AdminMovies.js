@@ -314,12 +314,4 @@ export default function AdminMovies() {
       )}
     </div>
   );
-<<<<<<< HEAD
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 173e75054d07f4e0c129abc68f5740577f23e7d0
-=======
-}
->>>>>>> ccf6da3f05f55445764b658e3ed484f205434861
