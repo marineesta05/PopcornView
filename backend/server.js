@@ -189,13 +189,74 @@ async function readStoredFilms() {
 
 async function writeStoredFilms(arr) {
   await fsp.mkdir(path.dirname(DATA_PATH), { recursive: true });
-  await fsp.writeFile(DATA_PATH, JSON.stringify(arr, null, 2), 'utf8');
+  try {
+    const newTxt = JSON.stringify(arr, null, 2);
+    let existing = null;
+    try { existing = await fsp.readFile(DATA_PATH, 'utf8'); } catch (e) { existing = null; }
+    if (existing === newTxt) {
+      return;
+    }
+    await fsp.writeFile(DATA_PATH, newTxt, 'utf8');
+  } catch (e) {
+    await fsp.writeFile(DATA_PATH, JSON.stringify(arr, null, 2), 'utf8');
+  }
+}
+
+async function fetchTMDBMovies(apiKey, pagesNeeded = 10) {
+  const movies = [];
+  for (let page = 1; page <= pagesNeeded; page++) {
+    const url = `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=en-US&page=${page}`;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      throw new Error(`TMDB request failed: ${resp.status}`);
+    }
+    const data = await resp.json();
+    if (Array.isArray(data.results)) {
+      for (const m of data.results) {
+        movies.push({
+          _id: String(m.id),
+          id: m.id,
+          title: m.title,
+          overview: m.overview,
+          poster_path: m.poster_path,
+          release_date: m.release_date,
+          vote_average: m.vote_average
+        });
+      }
+    }
+  }
+  return movies.slice(0, 200);
+}
+
+async function fetchAndStoreTMDB(apiKey, opts = {}) {
+  const pagesNeeded = opts.pagesNeeded || 10;
+  const movies = await fetchTMDBMovies(apiKey, pagesNeeded);
+  return movies;
+}
+
+async function removeDeletedFlagsFromStored() {
+  try {
+    const films = await readStoredFilms();
+    if (!Array.isArray(films) || films.length === 0) return;
+    let changed = false;
+    const cleaned = films.map(f => {
+      if (f && f.deleted) { changed = true; const copy = Object.assign({}, f); delete copy.deleted; return copy; }
+      return f;
+    });
+    if (changed) {
+      await writeStoredFilms(cleaned);
+      console.log('Removed deleted flags from stored films.');
+    }
+  } catch (e) {
+    console.error('Failed to sanitize stored films:', e && e.message ? e.message : e);
+  }
 }
 
 app.get('/api/films', async (req, res) => {
   try {
     const films = await readStoredFilms();
-    res.json(films);
+    const active = (films || []).filter(f => !f || !f.deleted ? true : false);
+    res.json(active || []);
   } catch (err) {
     console.error('read films error', err);
     res.status(500).json({ error: String(err) });
@@ -206,14 +267,7 @@ app.post('/api/films', async (req, res) => {
   try {
     const payload = req.body;
     if (!payload || (!payload.id && !payload._id)) return res.status(400).json({ error: 'Invalid payload, must include id or _id' });
-    const films = await readStoredFilms();
-    const exists = films.find(f => String(f.id) === String(payload.id) || String(f._id) === String(payload._id));
-    if (exists) return res.status(409).json({ error: 'Film already exists' });
-    const item = Object.assign({}, payload);
-    if (!item._id) item._id = String(item.id || Date.now());
-    films.unshift(item);
-    await writeStoredFilms(films);
-    res.status(201).json(item);
+    return res.status(405).json({ error: 'Adding arbitrary stored films is not supported. Use restore endpoint.' });
   } catch (err) {
     console.error('post films error', err);
     res.status(500).json({ error: String(err) });
@@ -240,12 +294,39 @@ app.delete('/api/films/:id', async (req, res) => {
   try {
     const id = String(req.params.id);
     const films = await readStoredFilms();
-    const newFilms = films.filter(f => !(String(f._id) === id || String(f.id) === id));
-    if (newFilms.length === films.length) return res.status(404).json({ error: 'Not found' });
-    await writeStoredFilms(newFilms);
+    const idx = films.findIndex(f => String(f._id) === id || String(f.id) === id);
+    if (idx === -1) return res.status(404).json({ error: 'Not found' });
+    films[idx] = Object.assign({}, films[idx], { deleted: true });
+    await writeStoredFilms(films);
     res.json({ ok: true });
   } catch (err) {
     console.error('delete films error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get('/api/films/deleted', async (req, res) => {
+  try {
+    const films = await readStoredFilms();
+    const deleted = (films || []).filter(f => f && f.deleted);
+    res.json(deleted || []);
+  } catch (err) {
+    console.error('read deleted films error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post('/api/films/:id/restore', async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const deleted = await readStoredFilms();
+    const idx = deleted.findIndex(f => String(f._id) === id || String(f.id) === id);
+    if (idx === -1) return res.status(404).json({ error: 'Not found' });
+    const removed = deleted.splice(idx, 1)[0];
+    await writeStoredFilms(deleted);
+    res.json({ ok: true, film: removed });
+  } catch (err) {
+    console.error('restore film error', err);
     res.status(500).json({ error: String(err) });
   }
 });
@@ -281,6 +362,52 @@ app.post('/api/sync-tmdb', async (req, res) => {
     res.json({ count: movies.length, results: movies.slice(0, 200) });
   } catch (err) {
     console.error(err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post('/api/sync-tmdb/save', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const apiKey = process.env.TMDB_API_KEY || req.body.apiKey;
+    if (!apiKey) return res.status(400).json({ error: 'TMDB API key required' });
+    const pagesNeeded = Number(req.body.pages || 10);
+    const movies = await fetchAndStoreTMDB(apiKey, { pagesNeeded });
+    res.json({ ok: true, count: movies.length });
+  } catch (err) {
+    console.error('sync-tmdb/save error', err && err.message ? err.message : err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post('/api/films/mark-deleted', async (req, res) => {
+  try {
+    const payload = req.body;
+    if (!payload || (!payload.id && !payload._id)) return res.status(400).json({ error: 'Invalid payload, must include id or _id' });
+    const idStr = String(payload._id || payload.id);
+    const films = await readStoredFilms();
+    const idx = (films || []).findIndex(f => String(f._id) === idStr || String(f.id) === idStr);
+    if (idx !== -1) {
+      films[idx] = Object.assign({}, films[idx], payload, { deleted: true });
+    } else {
+      const item = Object.assign({}, payload);
+      if (!item._id) item._id = idStr;
+      item.deleted = true;
+      films.unshift(item);
+    }
+    await writeStoredFilms(films);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('mark-deleted error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post('/api/films/clear-deleted-flags', async (req, res) => {
+  try {
+    await removeDeletedFlagsFromStored();
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('clear-deleted-flags error', err);
     res.status(500).json({ error: String(err) });
   }
 });
@@ -370,53 +497,33 @@ initDb().then(() => {
       console.error('ensureAdmin error', err);
     }
 
-    // Ensure films are preloaded from TMDB into data/films.json when empty
     try {
-      const stored = await readStoredFilms();
-      if ((!stored || stored.length === 0) && process.env.TMDB_API_KEY) {
-        console.log('No stored films found — fetching TMDB popular movies to preload...');
-        const apiKey = process.env.TMDB_API_KEY;
-        const movies = [];
-        const pagesNeeded = 10;
-        for (let page = 1; page <= pagesNeeded; page++) {
-          try {
-            const url = `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=en-US&page=${page}`;
-            const resp = await fetch(url);
-            if (!resp.ok) {
-              console.error('TMDB fetch page', page, 'failed with', resp.status);
-              break;
-            }
-            const data = await resp.json();
-            if (Array.isArray(data.results)) {
-              for (const m of data.results) {
-                movies.push({
-                  _id: String(m.id),
-                  id: m.id,
-                  title: m.title,
-                  overview: m.overview,
-                  poster_path: m.poster_path,
-                  release_date: m.release_date,
-                  vote_average: m.vote_average
-                });
-              }
-            }
-          } catch (e) {
-            console.error('Error fetching TMDB page', page, e && e.message ? e.message : e);
-            break;
-          }
-        }
-        const toWrite = movies.slice(0, 200);
-        if (toWrite.length > 0) {
-          await writeStoredFilms(toWrite);
-          console.log('Preloaded', toWrite.length, 'films from TMDB to data/films.json');
-        } else {
-          console.log('No films fetched from TMDB to preload');
-        }
-      } else {
-        console.log('Stored films present or no TMDB key - skipping preload');
+      await fsp.mkdir(path.dirname(DATA_PATH), { recursive: true });
+      try {
+        await fsp.access(DATA_PATH);
+        console.log('Films storage file exists - using it.');
+      } catch (_) {
+        await writeStoredFilms([]);
+        console.log('Created empty films storage at data/films.json');
       }
+
+      const preloadMode = (process.env.TMDB_PRELOAD_MODE || '').toLowerCase();
+      const apiKey = process.env.TMDB_API_KEY;
+      if (apiKey && preloadMode === 'always') {
+        try {
+          console.log('TMDB_PRELOAD_MODE=always — fetching and overwriting stored films from TMDB...');
+          const movies = await fetchAndStoreTMDB(apiKey, { pagesNeeded: 10 });
+          await writeStoredFilms(movies);
+          console.log(`Preloaded ${movies.length} films from TMDB to data/films.json`);
+        } catch (e) {
+          console.error('Failed to preload TMDB catalog on startup:', e && e.message ? e.message : e);
+        }
+        try { await removeDeletedFlagsFromStored(); } catch (e) { }
+      }
+
+      try { await removeDeletedFlagsFromStored(); } catch (e) { }
     } catch (e) {
-      console.error('Error during TMDB preload:', e && e.message ? e.message : e);
+      console.error('Error ensuring deleted films storage exists:', e && e.message ? e.message : e);
     }
 
     app.listen(PORT, () => {
