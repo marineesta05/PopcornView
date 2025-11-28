@@ -1,7 +1,10 @@
 [
   {
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> ccf6da3f05f55445764b658e3ed484f205434861
     "_id": "1419406",
     "id": 1419406,
     "title": "The Shadow's Edge",
@@ -38,7 +41,10 @@
     "vote_average": 6.8
   },
   {
+<<<<<<< HEAD
 >>>>>>> 173e75054d07f4e0c129abc68f5740577f23e7d0
+=======
+>>>>>>> ccf6da3f05f55445764b658e3ed484f205434861
     "_id": "1062722",
     "id": 1062722,
     "title": "Frankenstein",
@@ -46,8 +52,11 @@
     "poster_path": "/g4JtvGlQO7DByTI6frUobqvSL3R.jpg",
     "release_date": "2025-10-17",
 <<<<<<< HEAD
+<<<<<<< HEAD
     "vote_average": 7.766
 =======
+=======
+>>>>>>> ccf6da3f05f55445764b658e3ed484f205434861
     "vote_average": 7.8
   },
   {
@@ -1336,6 +1345,51 @@
     "poster_path": "/gKY6q7SjCkAU6FqvqWybDYgUKIF.jpg",
     "release_date": "2009-12-15",
     "vote_average": 7.594
+=======
+    "_id": "20526",
+    "id": 20526,
+    "title": "TRON: Legacy",
+    "overview": "Sam Flynn, the tech-savvy and daring son of Kevin Flynn, investigates his father's disappearance and is pulled into The Grid. With the help of a mysterious program named Quorra, Sam quests to stop evil dictator Clu from crossing into the real world.",
+    "poster_path": "/vuifSABRpSnxCAOxEnWpNbZSXpp.jpg",
+    "release_date": "2010-12-14",
+    "vote_average": 6.527
+  },
+  {
+    "_id": "155",
+    "id": 155,
+    "title": "The Dark Knight",
+    "overview": "Batman raises the stakes in his war on crime. With the help of Lt. Jim Gordon and District Attorney Harvey Dent, Batman sets out to dismantle the remaining criminal organizations that plague the streets. The partnership proves to be effective, but they soon find themselves prey to a reign of chaos unleashed by a rising criminal mastermind known to the terrified citizens of Gotham as the Joker.",
+    "poster_path": "/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
+    "release_date": "2008-07-16",
+    "vote_average": 8.525
+  },
+  {
+    "_id": "1930",
+    "id": 1930,
+    "title": "The Amazing Spider-Man",
+    "overview": "Peter Parker is an outcast high schooler abandoned by his parents as a boy, leaving him to be raised by his Uncle Ben and Aunt May. Like most teenagers, Peter is trying to figure out who he is and how he got to be the person he is today. As Peter discovers a mysterious briefcase that belonged to his father, he begins a quest to understand his parents' disappearance – leading him directly to Oscorp and the lab of Dr. Curt Connors, his father's former partner. As Spider-Man is set on a collision course with Connors' alter ego, The Lizard, Peter will make life-altering choices to use his powers and shape his destiny to become a hero.",
+    "poster_path": "/jexoNYnPd6vVrmygwF6QZmWPFdu.jpg",
+    "release_date": "2012-06-23",
+    "vote_average": 6.723
+  },
+  {
+    "_id": "121",
+    "id": 121,
+    "title": "The Lord of the Rings: The Two Towers",
+    "overview": "Frodo Baggins and the other members of the Fellowship continue on their sacred quest to destroy the One Ring--but on separate paths. Their destinies lie at two towers--Orthanc Tower in Isengard, where the corrupt wizard Saruman awaits, and Sauron's fortress at Barad-dur, deep within the dark lands of Mordor. Frodo and Sam are trekking to Mordor to destroy the One Ring of Power while Gimli, Legolas and Aragorn search for the orc-captured Merry and Pippin. All along, nefarious wizard Saruman awaits the Fellowship members at the Orthanc Tower in Isengard.",
+    "poster_path": "/5VTN0pR8gcqV3EPUHHfMGnJYN9L.jpg",
+    "release_date": "2002-12-18",
+    "vote_average": 8.411
+  },
+  {
+    "_id": "122",
+    "id": 122,
+    "title": "The Lord of the Rings: The Return of the King",
+    "overview": "As armies mass for a final battle that will decide the fate of the world--and powerful, ancient forces of Light and Dark compete to determine the outcome--one member of the Fellowship of the Ring is revealed as the noble heir to the throne of the Kings of Men. Yet, the sole hope for triumph over evil lies with a brave hobbit, Frodo, who, accompanied by his loyal friend Sam and the hideous, wretched Gollum, ventures deep into the very dark heart of Mordor on his seemingly impossible quest to destroy the Ring of Power.​",
+    "poster_path": "/rCzpDGLbOoPwLjy3OAm5NUPOTrC.jpg",
+    "release_date": "2003-12-17",
+    "vote_average": 8.491
+>>>>>>> devel_jjaunaux
   },
   {
     "_id": "120",
@@ -1347,6 +1401,7 @@
     "vote_average": 8.426
   },
   {
+<<<<<<< HEAD
     "_id": "508422",
     "id": 508422,
     "title": "Penguin Highway",
@@ -1804,6 +1859,36 @@
     "poster_path": "/wWba3TaojhK7NdycRhoQpsG0FaH.jpg",
     "release_date": "2024-06-20",
     "vote_average": 7.013
+<<<<<<< HEAD
 >>>>>>> 173e75054d07f4e0c129abc68f5740577f23e7d0
+=======
+=======
+    "_id": "16869",
+    "id": 16869,
+    "title": "Inglourious Basterds",
+    "overview": "In Nazi-occupied France during World War II, a group of Jewish-American soldiers known as \"The Basterds\" are chosen specifically to spread fear throughout the Third Reich by scalping and brutally killing Nazis. The Basterds, lead by Lt. Aldo Raine soon cross paths with a French-Jewish teenage girl who runs a movie theater in Paris which is targeted by the soldiers.",
+    "poster_path": "/7sfbEnaARXDDhKm0CZ7D7uc2sbo.jpg",
+    "release_date": "2009-08-02",
+    "vote_average": 8.214
+  },
+  {
+    "_id": "1246049",
+    "id": 1246049,
+    "title": "Dracula",
+    "overview": "When a 15th-century prince denounces God after the devastating loss of his wife, he inherits an eternal curse: he becomes Dracula. Condemned to wander the centuries, he defies fate and death itself, guided by a single hope — to be reunited with his lost love.",
+    "poster_path": "/6CAFMCvM1SBejTgfj6AUM5QGfNZ.jpg",
+    "release_date": "2025-07-30",
+    "vote_average": 7.1
+  },
+  {
+    "_id": "1062722",
+    "id": 1062722,
+    "title": "Frankenstein",
+    "overview": "Dr. Victor Frankenstein, a brilliant but egotistical scientist, brings a creature to life in a monstrous experiment that ultimately leads to the undoing of both the creator and his tragic creation.",
+    "poster_path": "/g4JtvGlQO7DByTI6frUobqvSL3R.jpg",
+    "release_date": "2025-10-17",
+    "vote_average": 7.766
+>>>>>>> devel_jjaunaux
+>>>>>>> ccf6da3f05f55445764b658e3ed484f205434861
   }
 ]
