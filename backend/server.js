@@ -370,6 +370,55 @@ initDb().then(() => {
       console.error('ensureAdmin error', err);
     }
 
+    // Ensure films are preloaded from TMDB into data/films.json when empty
+    try {
+      const stored = await readStoredFilms();
+      if ((!stored || stored.length === 0) && process.env.TMDB_API_KEY) {
+        console.log('No stored films found — fetching TMDB popular movies to preload...');
+        const apiKey = process.env.TMDB_API_KEY;
+        const movies = [];
+        const pagesNeeded = 10;
+        for (let page = 1; page <= pagesNeeded; page++) {
+          try {
+            const url = `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=en-US&page=${page}`;
+            const resp = await fetch(url);
+            if (!resp.ok) {
+              console.error('TMDB fetch page', page, 'failed with', resp.status);
+              break;
+            }
+            const data = await resp.json();
+            if (Array.isArray(data.results)) {
+              for (const m of data.results) {
+                movies.push({
+                  _id: String(m.id),
+                  id: m.id,
+                  title: m.title,
+                  overview: m.overview,
+                  poster_path: m.poster_path,
+                  release_date: m.release_date,
+                  vote_average: m.vote_average
+                });
+              }
+            }
+          } catch (e) {
+            console.error('Error fetching TMDB page', page, e && e.message ? e.message : e);
+            break;
+          }
+        }
+        const toWrite = movies.slice(0, 200);
+        if (toWrite.length > 0) {
+          await writeStoredFilms(toWrite);
+          console.log('Preloaded', toWrite.length, 'films from TMDB to data/films.json');
+        } else {
+          console.log('No films fetched from TMDB to preload');
+        }
+      } else {
+        console.log('Stored films present or no TMDB key - skipping preload');
+      }
+    } catch (e) {
+      console.error('Error during TMDB preload:', e && e.message ? e.message : e);
+    }
+
     app.listen(PORT, () => {
       console.log(`Backend server listening on http://localhost:${PORT}`);
     });

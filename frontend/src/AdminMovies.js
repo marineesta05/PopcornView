@@ -15,7 +15,6 @@ export default function AdminMovies() {
   const [tmdbPage, setTmdbPage] = useState(1);
   const [tmdbTotalPages, setTmdbTotalPages] = useState(1);
   const [tmdbSuggestions, setTmdbSuggestions] = useState([]);
-  const [saveAddedToServer, setSaveAddedToServer] = useState(true);
   const [backendHasKey, setBackendHasKey] = useState(null); 
 
   useEffect(() => { fetchFilms(); }, []);
@@ -180,13 +179,9 @@ export default function AdminMovies() {
         }
         const added = await res.json();
         await fetchFilms();
-        setMessage('Added to server');
-        setTmdbResults(prev => prev.filter(x => String(x.id) !== String(m.id)));
-        setTmdbSuggestions(prev => prev.filter(x => String(x.id) !== String(m.id)));
+        // setMessage('Added to server');
       } else {
         setFilms(prev => [payload, ...prev]);
-        setTmdbResults(prev => prev.filter(x => String(x.id) !== String(m.id)));
-        setTmdbSuggestions(prev => prev.filter(x => String(x.id) !== String(m.id)));
         setMessage('Added locally (not saved)');
       }
       setTimeout(()=>setMessage(''),2000);
@@ -201,7 +196,7 @@ export default function AdminMovies() {
       const res = await fetch(`${API}/api/films/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Delete failed');
       await fetchFilms();
-      setMessage('Deleted');
+      // setMessage('Deleted');
       setTimeout(()=>setMessage(''),2000);
     } catch (err) {
       setMessage('Failed to delete');
@@ -227,6 +222,7 @@ export default function AdminMovies() {
       <AdminHeader title="Admin — Films" />
       <div style={{ padding: 20 }}>
         <h2>Admin — Films</h2>
+        <div style={{ marginBottom: 12, color: '#333' }}>Les films sont pré-chargés depuis l'API TMDB par défaut. L'ajout manuel est désactivé — vous pouvez uniquement supprimer des films.</div>
         <div style={{ marginBottom: 12 }}>
           <button onClick={() => { window.location.href = '/admin/users'; }} style={{ marginRight: 8 }}>Accéder aux utilisateurs</button>
         </div>
@@ -245,17 +241,13 @@ export default function AdminMovies() {
 
           {tmdbMode === 'search' && (
             <div style={{ marginBottom: 8 }}>
-              <input placeholder="Search TMDB" value={tmdbQuery} onChange={e=>setTmdbQuery(e.target.value)} style={{ width: 360 }} />
+              <input placeholder="Search a movie" value={tmdbQuery} onChange={e=>setTmdbQuery(e.target.value)} style={{ width: 360 }} />
               <button onClick={()=>searchTmdb(tmdbQuery, 1)} style={{ marginLeft: 8 }}>Search</button>
-              <label style={{ marginLeft: 12, fontSize: 13 }}>
-                <input type="checkbox" checked={saveAddedToServer} onChange={e=>setSaveAddedToServer(e.target.checked)} style={{ marginRight: 6 }} />
-                Save added to server
-              </label>
 
-              {tmdbSuggestions.length > 0 && (
+                  {tmdbSuggestions.length > 0 && (
                 <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {tmdbSuggestions.map(s => (
-                    <div key={s.id} onClick={() => { addFromTmdb(s, saveAddedToServer); setTmdbQuery(''); setTmdbSuggestions([]); }} style={{ cursor: 'pointer', width: 160, display: 'flex', gap: 8, alignItems: 'center', border: '1px solid #eee', padding: 6, background: '#fff' }}>
+                    <div key={s.id} style={{ width: 160, display: 'flex', gap: 8, alignItems: 'center', border: '1px solid #eee', padding: 6, background: '#fff' }}>
                       {s.poster_path ? <img src={`https://image.tmdb.org/t/p/w92${s.poster_path}`} alt={s.title} style={{ width: 56, height: 84, objectFit: 'cover' }} /> : <div style={{ width:56, height:84, background:'#ccc' }} />}
                       <div style={{ fontSize: 13 }}>{s.title}</div>
                     </div>
@@ -271,7 +263,7 @@ export default function AdminMovies() {
                 <div key={m.id} style={{ width: 140, textAlign: 'center', border: '1px solid #eee', padding: 6 }}>
                   {m.poster_path ? <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} style={{ width: '100%' }} /> : <div style={{ width:'100%', height:210, background:'#ccc' }} />}
                   <div style={{ fontSize: 12, marginTop: 6 }}>{m.title}</div>
-                  <button onClick={()=>addFromTmdb(m, saveAddedToServer)} style={{ marginTop:6 }}>Add</button>
+                  <div style={{ marginTop:6, color: '#777', fontSize: 12 }}>Ajout désactivé</div>
                 </div>
               ))}
             </div>
