@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 const Register = () => {
+    const navigate = useNavigate();  
 
     const [formData, setFormData] = useState({
         nom: "",
@@ -24,7 +26,7 @@ const Register = () => {
         setSuccess("");
 
         try {
-            const response = await fetch("http://localhost:4000/api/auth/register", {
+            const response = await fetch("http://localhost:3001/register", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -36,8 +38,8 @@ const Register = () => {
 
             if (response.status === 201) {
                 setSuccess("Registration successful!");
+                navigate("/login");  
                 setFormData({ email: "", password: "" });
-                window.location.href = '/login';
             } else {
                 setError(data.message || "Une erreur s'est produite.");
             }
@@ -140,9 +142,9 @@ const Register = () => {
                 </button>
             </form>
 
-            {}
+            {/* BOUTONS DE NAVIGATION */}
             <button
-                onClick={() => { window.location.href = '/login'; }}
+                onClick={() => navigate("/login")}
                 style={{
                     width: "100%",
                     padding: "10px",
@@ -158,7 +160,7 @@ const Register = () => {
             </button>
 
             <button
-                onClick={() => { window.location.href = '/home'; }}
+                onClick={() => navigate("/home")}
                 style={{
                     width: "100%",
                     padding: "10px",
@@ -174,7 +176,7 @@ const Register = () => {
             </button>
 
             <button
-                onClick={() => { window.location.href = '/admin/login'; }}
+                onClick={() => navigate("/login")}
                 style={{
                     width: "100%",
                     padding: "10px",
