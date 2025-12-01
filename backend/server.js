@@ -313,10 +313,57 @@ app.delete('/api/films/:id', async (req, res) => {
     const films = await readStoredFilms();
     const idx = films.findIndex(f => String(f._id) === id || String(f.id) === id);
     if (idx === -1) {
+      // If the film is not present in stored films, try to fetch details from TMDB
       const item = { _id: id, id: isNaN(Number(id)) ? id : Number(id), deleted: true };
+      try {
+        const apiKey = process.env.TMDB_API_KEY;
+        if (apiKey) {
+          const url = `https://api.themoviedb.org/3/movie/${id}?api_key=${apiKey}&language=en-US`;
+          const resp = await fetch(url);
+          if (resp && resp.ok) {
+            const m = await resp.json();
+            if (m) {
+              item.title = m.title || item.title;
+              item.overview = m.overview || item.overview;
+              item.poster_path = m.poster_path || item.poster_path;
+              item.release_date = m.release_date || item.release_date;
+              item.vote_average = m.vote_average || item.vote_average;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch TMDB details for deleted film', id, e && e.message ? e.message : e);
+      }
       films.unshift(item);
     } else {
+      // Mark deleted and enrich metadata if missing
       films[idx] = Object.assign({}, films[idx], { deleted: true });
+      const existing = films[idx];
+      const needsTitle = !existing.title || existing.title === '';
+      const needsPoster = !existing.poster_path;
+      const needsOverview = !existing.overview;
+      const needsDate = !existing.release_date;
+      if ((needsTitle || needsPoster || needsOverview || needsDate) && process.env.TMDB_API_KEY) {
+        try {
+          const apiKey = process.env.TMDB_API_KEY;
+          const url = `https://api.themoviedb.org/3/movie/${id}?api_key=${apiKey}&language=en-US`;
+          const resp = await fetch(url);
+          if (resp && resp.ok) {
+            const m = await resp.json();
+            if (m) {
+              films[idx] = Object.assign({}, films[idx], {
+                title: m.title || existing.title,
+                overview: m.overview || existing.overview,
+                poster_path: m.poster_path || existing.poster_path,
+                release_date: m.release_date || existing.release_date,
+                vote_average: m.vote_average || existing.vote_average
+              });
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch TMDB details for existing deleted film', id, e && e.message ? e.message : e);
+        }
+      }
     }
     await writeStoredFilms(films);
     res.json({ ok: true });
@@ -330,6 +377,61 @@ app.get('/api/films/deleted', async (req, res) => {
   try {
     const films = await readStoredFilms();
     const deleted = (films || []).filter(f => f && f.deleted);
+
+    // Enrich deleted entries that lack metadata by fetching TMDB details (if configured)
+    const apiKey = process.env.TMDB_API_KEY;
+    let changed = false;
+    if (apiKey && Array.isArray(deleted) && deleted.length > 0) {
+      for (let i = 0; i < deleted.length; i++) {
+        const d = deleted[i];
+        if (!d) continue;
+        const needsTitle = !d.title || d.title === '';
+        const needsPoster = !d.poster_path;
+        if (needsTitle || needsPoster || !d.overview || !d.release_date) {
+          try {
+            const id = String(d._id || d.id);
+            if (!id) continue;
+            const url = `https://api.themoviedb.org/3/movie/${id}?api_key=${apiKey}&language=en-US`;
+            const resp = await fetch(url);
+            if (resp && resp.ok) {
+              const m = await resp.json();
+              if (m) {
+                // Update the object in the main films array as well
+                const idx = films.findIndex(f => String(f._id) === id || String(f.id) === id);
+                const updated = Object.assign({}, d, {
+                  title: m.title || d.title,
+                  overview: m.overview || d.overview,
+                  poster_path: m.poster_path || d.poster_path,
+                  release_date: m.release_date || d.release_date,
+                  vote_average: m.vote_average || d.vote_average
+                });
+                if (idx !== -1) {
+                  films[idx] = updated;
+                } else {
+                  // ensure deleted entry itself gets enriched
+                  const pos = films.indexOf(d);
+                  if (pos !== -1) films[pos] = updated;
+                }
+                deleted[i] = updated;
+                changed = true;
+              }
+            }
+          } catch (e) {
+            console.error('Failed to enrich deleted film from TMDB', d && (d._id || d.id), e && e.message ? e.message : e);
+          }
+        }
+      }
+    }
+
+    if (changed) {
+      try {
+        await writeStoredFilms(films);
+        console.log('Enriched deleted films with TMDB metadata and updated storage.');
+      } catch (e) {
+        console.error('Failed to write enriched deleted films to storage:', e && e.message ? e.message : e);
+      }
+    }
+
     res.json(deleted || []);
   } catch (err) {
     console.error('read deleted films error', err);

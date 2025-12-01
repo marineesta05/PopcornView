@@ -18,7 +18,7 @@ const Home = () => {
     // États pour TMDB (admin uniquement)
     const [showTmdbPanel, setShowTmdbPanel] = useState(false);
     const [showUsersPanel, setShowUsersPanel] = useState(false);
-    const [tmdbMode, setTmdbMode] = useState('popular');
+    const [tmdbMode, setTmdbMode] = useState('search');
     const [tmdbQuery, setTmdbQuery] = useState('');
     const [tmdbResults, setTmdbResults] = useState([]);
     const [tmdbPage, setTmdbPage] = useState(1);
@@ -27,6 +27,10 @@ const Home = () => {
     const [apiConnectionError, setApiConnectionError] = useState(false);
     const [catalogPages, setCatalogPages] = useState(1);
     const [loadingMore, setLoadingMore] = useState(false);
+    // Deleted films panel
+    const [showDeletedPanel, setShowDeletedPanel] = useState(false);
+    const [deletedFilms, setDeletedFilms] = useState([]);
+    const [deletedLoading, setDeletedLoading] = useState(false);
     
     // États pour la gestion des utilisateurs
     const [userForm, setUserForm] = useState({
@@ -82,6 +86,43 @@ const Home = () => {
                 }
             }
     }, [loading, token, isAdmin, catalogPages]);
+
+    // Fetch deleted films (admin)
+    const fetchDeletedFilms = async () => {
+        if (!token) return;
+        setDeletedLoading(true);
+        try {
+            const resp = await axios.get(`${FILMS_API}/films/deleted`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 10000
+            });
+            setDeletedFilms(resp.data || []);
+        } catch (err) {
+            console.error('Erreur fetchDeletedFilms', err);
+            setMessage('Erreur lors du chargement des films supprimés');
+            setTimeout(() => setMessage(''), 3000);
+        } finally {
+            setDeletedLoading(false);
+        }
+    };
+
+    const restoreDeleted = async (movieId) => {
+        if (!token) return;
+        if (!window.confirm('Restaurer ce film ?')) return;
+        try {
+            await axios.post(`${FILMS_API}/films/${movieId}/restore`, {}, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            setMessage('✅ Film restauré');
+            fetchMovies();
+            fetchDeletedFilms();
+            setTimeout(() => setMessage(''), 2000);
+        } catch (err) {
+            console.error('Erreur restoreDeleted', err);
+            setMessage('❌ Impossible de restaurer');
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
 
     // Fonction pour vérifier la connexion à l'API
     const checkApiConnection = async () => {
@@ -337,6 +378,21 @@ const Home = () => {
         }
     };
 
+    // Search-as-you-type (debounced)
+    useEffect(() => {
+        const q = (tmdbQuery || '').trim();
+        if (!q) {
+            setTmdbResults([]);
+            setTmdbPage(1);
+            setTmdbTotalPages(1);
+            return;
+        }
+        const id = setTimeout(() => {
+            searchTmdb(q, 1);
+        }, 350);
+        return () => clearTimeout(id);
+    }, [tmdbQuery]);
+
     const addFromTmdb = async (m) => {
         try {
             const exists = movies.find(f => String(f.id) === String(m.id) || String(f._id) === String(m.id));
@@ -510,7 +566,26 @@ const Home = () => {
                                     cursor: apiConnectionError ? "not-allowed" : "pointer"
                                 }}
                             >
-                                {showTmdbPanel ? '❌ Fermer TMDB' : '➕ Ajouter des films'}
+                                {showTmdbPanel ? '❌ Fermer TMDB' : '🔎 Explorer TMDB'}
+                            </button>
+                            
+                            <button 
+                                onClick={() => {
+                                    setShowDeletedPanel(!showDeletedPanel);
+                                    setShowTmdbPanel(false);
+                                    setShowUsersPanel(false);
+                                    if (!showDeletedPanel) fetchDeletedFilms();
+                                }}
+                                style={{
+                                    backgroundColor: showDeletedPanel ? "#ff9800" : "#607d8b",
+                                    color: "white",
+                                    padding: "8px 16px",
+                                    border: "none",
+                                    borderRadius: "4px",
+                                    cursor: "pointer"
+                                }}
+                            >
+                                {showDeletedPanel ? '❌ Fermer Supprimés' : '🗄️ Films supprimés'}
                             </button>
                             
                             <button 
@@ -743,6 +818,51 @@ const Home = () => {
                 </div>
             )}
 
+            {/* Panel Films Supprimés (admin) */}
+            {isAdmin && showDeletedPanel && (
+                <div style={{
+                    border: '2px solid #607d8b',
+                    borderRadius: '8px',
+                    padding: '20px',
+                    marginBottom: '30px',
+                    backgroundColor: '#fafafa'
+                }}>
+                    <h2 style={{ marginTop: 0 }}>🗄️ Films Supprimés</h2>
+                    {deletedLoading ? (
+                        <p>Chargement...</p>
+                    ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: '6px', overflow: 'hidden' }}>
+                                <thead>
+                                    <tr style={{ backgroundColor: '#607d8b', color: 'white' }}>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>ID</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Titre</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Date</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {deletedFilms.length === 0 ? (
+                                        <tr><td style={{ padding: '12px' }} colSpan={4}>Aucun film supprimé</td></tr>
+                                    ) : deletedFilms.map(df => (
+                                        <tr key={df._id || df.id} style={{ borderBottom: '1px solid #eee' }}>
+                                            <td style={{ padding: '12px' }}>{df._id || df.id}</td>
+                                            <td style={{ padding: '12px' }}>{df.title}</td>
+                                            <td style={{ padding: '12px' }}>{df.release_date || ''}</td>
+                                            <td style={{ padding: '12px' }}>
+                                                <button onClick={() => restoreDeleted(String(df._id || df.id))} style={{ backgroundColor: '#4caf50', color: 'white', padding: '6px 12px', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+                                                    ♻️ Restaurer
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Panel TMDB pour les admins */}
             {isAdmin && showTmdbPanel && (
                 <div style={{
@@ -755,40 +875,24 @@ const Home = () => {
                     <h2 style={{ marginTop: 0 }}>📽️ Catalogue TMDB</h2>
                     
                     <div style={{ marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <button 
-                            onClick={() => { 
-                                setTmdbMode('popular'); 
-                                setTmdbPage(1); 
-                                fetchPopular(1); 
-                            }}
-                            style={{
-                                backgroundColor: tmdbMode === 'popular' ? '#2196f3' : '#ccc',
-                                color: 'white',
-                                padding: '8px 16px',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            🔥 Populaires
-                        </button>
-                        <button 
-                            onClick={() => { 
-                                setTmdbMode('search'); 
-                                setTmdbResults([]); 
-                                setTmdbPage(1); 
-                            }}
-                            style={{
-                                backgroundColor: tmdbMode === 'search' ? '#2196f3' : '#ccc',
-                                color: 'white',
-                                padding: '8px 16px',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            🔍 Rechercher
-                        </button>
+                            <button 
+                                onClick={() => { 
+                                    setTmdbMode('search'); 
+                                    setTmdbResults([]); 
+                                    setTmdbPage(1); 
+                                    // focus will trigger suggestions as user types
+                                }}
+                                style={{
+                                    backgroundColor: '#2196f3',
+                                    color: 'white',
+                                    padding: '8px 16px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                🔍 Rechercher
+                            </button>
                     </div>
 
                     {tmdbMode === 'search' && (
@@ -797,7 +901,6 @@ const Home = () => {
                                 placeholder="Rechercher un film sur TMDB..." 
                                 value={tmdbQuery} 
                                 onChange={e => setTmdbQuery(e.target.value)}
-                                onKeyPress={e => e.key === 'Enter' && searchTmdb(tmdbQuery, 1)}
                                 style={{ 
                                     flex: 1, 
                                     padding: '10px',
@@ -885,9 +988,9 @@ const Home = () => {
                                             {m.title}
                                         </div>
                                         <button 
-                                            onClick={() => addFromTmdb(m)}
+                                            onClick={() => deleteMovie(String(m.id))}
                                             style={{
-                                                backgroundColor: '#4caf50',
+                                                backgroundColor: '#f44336',
                                                 color: 'white',
                                                 padding: '6px 12px',
                                                 border: 'none',
@@ -896,7 +999,7 @@ const Home = () => {
                                                 width: '100%'
                                             }}
                                         >
-                                            ➕ Ajouter
+                                            🗑️ Supprimer
                                         </button>
                                     </div>
                                 ))}
@@ -914,8 +1017,7 @@ const Home = () => {
                                         onClick={() => {
                                             const newPage = Math.max(1, tmdbPage - 1);
                                             setTmdbPage(newPage);
-                                            if (tmdbMode === 'popular') fetchPopular(newPage);
-                                            else searchTmdb(tmdbQuery, newPage);
+                                            searchTmdb(tmdbQuery, newPage);
                                         }}
                                         disabled={tmdbPage <= 1}
                                         style={{
@@ -934,8 +1036,7 @@ const Home = () => {
                                         onClick={() => {
                                             const newPage = Math.min(tmdbTotalPages, tmdbPage + 1);
                                             setTmdbPage(newPage);
-                                            if (tmdbMode === 'popular') fetchPopular(newPage);
-                                            else searchTmdb(tmdbQuery, newPage);
+                                            searchTmdb(tmdbQuery, newPage);
                                         }}
                                         disabled={tmdbPage >= tmdbTotalPages}
                                         style={{
