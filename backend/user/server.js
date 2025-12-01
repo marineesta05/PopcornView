@@ -34,8 +34,12 @@ const isValidEmail = (email) => {
 };
 
 const isValidPassword = (password) => {
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-    return passwordRegex.test(password);
+    if (!password || typeof password !== 'string') return false;
+    const pass = String(password);
+    if (pass.length < 12) return false;
+    const classes = [/[a-z]/, /[A-Z]/, /\d/, /[@$!%*?&^#()\[\]{}<>~`_+=|:;.,\/\\-]/];
+    const matched = classes.reduce((c, rx) => c + (rx.test(pass) ? 1 : 0), 0);
+    return matched >= 3;
 };
 
 // REGISTER avec async/await
@@ -67,7 +71,7 @@ app.post('/register', async (req, res) => {
         }
 
         // Hasher le mot de passe
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, 12);
         const userRole = role || 'user';
 
         // Insérer l'utilisateur
