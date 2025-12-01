@@ -1,0 +1,1119 @@
+import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import axios from "axios";
+import { jwtDecode } from "jwt-decode";
+
+// URL de l'API films
+const FILMS_API = 'http://localhost:4000/api';
+
+const Home = () => {
+    const navigate = useNavigate();
+    const [movies, setMovies] = useState([]);
+    const [users, setUsers] = useState([]);
+    const [isAdmin, setIsAdmin] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [message, setMessage] = useState('');
+    const [token, setToken] = useState(localStorage.getItem("token"));
+    
+    // États pour TMDB (admin uniquement)
+    const [showTmdbPanel, setShowTmdbPanel] = useState(false);
+    const [showUsersPanel, setShowUsersPanel] = useState(false);
+    const [tmdbMode, setTmdbMode] = useState('popular');
+    const [tmdbQuery, setTmdbQuery] = useState('');
+    const [tmdbResults, setTmdbResults] = useState([]);
+    const [tmdbPage, setTmdbPage] = useState(1);
+    const [tmdbTotalPages, setTmdbTotalPages] = useState(1);
+    const [tmdbLoading, setTmdbLoading] = useState(false);
+    const [apiConnectionError, setApiConnectionError] = useState(false);
+    
+    // États pour la gestion des utilisateurs
+    const [userForm, setUserForm] = useState({
+        nom: '',
+        prenom: '',
+        email: '',
+        password: '',
+        role: 'user'
+    });
+    
+    // Vérification de l'authentification
+    useEffect(() => {
+        const checkAuth = () => {
+            const currentToken = localStorage.getItem("token");
+            
+            if (!currentToken) {
+                console.log("❌ Aucun token trouvé, redirection vers login");
+                navigate('/login', { replace: true });
+                return;
+            }
+
+            try {
+                const decoded = jwtDecode(currentToken);
+                const currentTime = Date.now() / 1000;
+                
+                if (decoded.exp && decoded.exp < currentTime) {
+                    console.log("❌ Token expiré");
+                    localStorage.removeItem("token");
+                    navigate('/login', { replace: true });
+                    return;
+                }
+                
+                console.log("✅ Token valide, rôle:", decoded.role);
+                setIsAdmin(decoded.role === 'admin');
+                setToken(currentToken);
+                setLoading(false);
+            } catch (error) {
+                console.error("❌ Token invalide:", error.message);
+                localStorage.removeItem("token");
+                navigate('/login', { replace: true });
+            }
+        };
+
+        checkAuth();
+    }, [navigate]);
+    
+    useEffect(() => {
+        if (!loading && token) {
+            console.log("🔄 Chargement des films...");
+            fetchMovies();
+            if (isAdmin) {
+                fetchUsers();
+            }
+        }
+    }, [loading, token, isAdmin]);
+
+    // Fonction pour vérifier la connexion à l'API
+    const checkApiConnection = async () => {
+        try {
+            await axios.get(`${FILMS_API}/health`, { timeout: 5000 });
+            setApiConnectionError(false);
+            return true;
+        } catch (error) {
+            console.error("API non accessible:", error.message);
+            setApiConnectionError(true);
+            setMessage(`⚠️ API Films non accessible (${FILMS_API}). Vérifiez que le serveur est démarré.`);
+            return false;
+        }
+    };
+
+    const fetchMovies = async () => {
+        if (!token) {
+            console.log("❌ Aucun token disponible pour fetchMovies");
+            return;
+        }
+
+        try {
+            console.log("🔄 Fetch films avec token:", token);
+            
+            const response = await axios.get(`${FILMS_API}/films`, {
+                timeout: 10000,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            console.log("✅ Films récupérés:", response.data.length, "films");
+            setMovies(response.data || []);
+            setApiConnectionError(false);
+            
+        } catch (error) {
+            console.error("❌ Erreur fetchMovies:", error);
+            console.error("Détails:", error.response?.data);
+            
+            if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+                setMessage(`❌ Impossible de se connecter à l'API Films (${FILMS_API}). Vérifiez que le serveur backend est démarré.`);
+                setApiConnectionError(true);
+            } else if (error.response?.status === 401) {
+                setMessage('Token invalide ou expiré. Veuillez vous reconnecter.');
+                setTimeout(() => {
+                    localStorage.removeItem("token");
+                    navigate('/login', { replace: true });
+                }, 3000);
+            } else if (error.response?.status === 403) {
+                setMessage('Accès non autorisé');
+            } else {
+                setMessage('Erreur lors du chargement des films: ' + (error.response?.data?.error || error.message));
+            }
+            
+            setTimeout(() => setMessage(''), 5000);
+        }
+    };
+
+    // Fonctions pour la gestion des utilisateurs (admin seulement)
+    const fetchUsers = async () => {
+        if (!isAdmin) return;
+        
+        try {
+            const response = await axios.get(`${FILMS_API}/users`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            setUsers(response.data || []);
+        } catch (error) {
+            console.error("Erreur lors du chargement des utilisateurs:", error);
+            setMessage('Erreur lors du chargement des utilisateurs');
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
+
+    const createUser = async (e) => {
+        e.preventDefault();
+        try {
+            await axios.post(`${FILMS_API}/users`, userForm, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            setUserForm({ nom: '', prenom: '', email: '', password: '', role: 'user' });
+            setMessage('✅ Utilisateur créé avec succès');
+            fetchUsers();
+            setTimeout(() => setMessage(''), 2000);
+        } catch (error) {
+            console.error("Erreur création utilisateur:", error);
+            setMessage('❌ Erreur lors de la création: ' + (error.response?.data?.error || error.message));
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
+
+    const createAdmin = async (e) => {
+        e.preventDefault();
+        try {
+            const adminData = { ...userForm, role: 'admin' };
+            await axios.post(`${FILMS_API}/users`, adminData, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            setUserForm({ nom: '', prenom: '', email: '', password: '', role: 'user' });
+            setMessage('✅ Administrateur créé avec succès');
+            fetchUsers();
+            setTimeout(() => setMessage(''), 2000);
+        } catch (error) {
+            console.error("Erreur création admin:", error);
+            setMessage('❌ Erreur lors de la création: ' + (error.response?.data?.error || error.message));
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
+
+    const editUser = async (user) => {
+        const nom = window.prompt('Nom', user.nom) || user.nom;
+        const prenom = window.prompt('Prénom', user.prenom) || user.prenom;
+        const email = window.prompt('Email', user.email) || user.email;
+        const role = window.prompt('Rôle (user/admin)', user.role) || user.role;
+        const password = window.prompt('Nouveau mot de passe (laisser vide pour garder actuel)') || '';
+
+        try {
+            const payload = { nom, prenom, email, role };
+            if (password) payload.password = password;
+
+            await axios.put(`${FILMS_API}/users/${user.id}`, payload, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            setMessage('✅ Utilisateur mis à jour avec succès');
+            fetchUsers();
+            setTimeout(() => setMessage(''), 2000);
+        } catch (error) {
+            console.error("Erreur modification utilisateur:", error);
+            setMessage('❌ Erreur lors de la modification: ' + (error.response?.data?.error || error.message));
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
+
+    const deleteUser = async (userId) => {
+        if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return;
+
+        try {
+            await axios.delete(`${FILMS_API}/users/${userId}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            setMessage('✅ Utilisateur supprimé avec succès');
+            fetchUsers();
+            setTimeout(() => setMessage(''), 2000);
+        } catch (error) {
+            console.error("Erreur suppression utilisateur:", error);
+            setMessage('❌ Erreur lors de la suppression: ' + (error.response?.data?.error || error.message));
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
+
+    // Fonctions TMDB existantes (gardées telles quelles)
+    const fetchPopular = async (page = 1) => {
+        setTmdbLoading(true);
+        try {
+            const response = await axios.get(`${FILMS_API}/tmdb/popular?page=${page}`, {
+                timeout: 10000,
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            setTmdbResults(response.data.results || []);
+            setTmdbPage(response.data.page || 1);
+            setTmdbTotalPages(response.data.total_pages || 1);
+        } catch (error) {
+            console.error("Error fetching popular:", error);
+            
+            if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+                setMessage(`❌ API Films non accessible. Vérifiez la connexion au serveur ${FILMS_API}`);
+            } else if (error.response?.status === 401) {
+                setMessage('Token invalide ou expiré');
+            } else {
+                setMessage('Erreur lors du chargement des films populaires: ' + (error.response?.data?.error || error.message));
+            }
+            setTimeout(() => setMessage(''), 5000);
+        } finally {
+            setTmdbLoading(false);
+        }
+    };
+
+    const searchTmdb = async (q, page = 1) => {
+        if (!q) return setTmdbResults([]);
+        setTmdbLoading(true);
+        try {
+            const response = await axios.get(
+                `${FILMS_API}/tmdb/search?q=${encodeURIComponent(q)}&page=${page}`,
+                {
+                    timeout: 10000,
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                }
+            );
+            setTmdbResults(response.data.results || []);
+            setTmdbPage(response.data.page || 1);
+            setTmdbTotalPages(response.data.total_pages || 1);
+        } catch (error) {
+            console.error("Error searching TMDB:", error);
+            
+            if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+                setMessage(`❌ API Films non accessible`);
+            } else if (error.response?.status === 401) {
+                setMessage('Token invalide ou expiré');
+            } else {
+                setMessage('Erreur lors de la recherche: ' + (error.response?.data?.error || error.message));
+            }
+            setTimeout(() => setMessage(''), 5000);
+        } finally {
+            setTmdbLoading(false);
+        }
+    };
+
+    const addFromTmdb = async (m) => {
+        try {
+            const exists = movies.find(f => String(f.id) === String(m.id) || String(f._id) === String(m.id));
+            if (exists) {
+                setMessage('⚠️ Film déjà ajouté');
+                setTimeout(() => setMessage(''), 2000);
+                return;
+            }
+
+            const payload = {
+                _id: String(m.id),
+                id: m.id,
+                title: m.title,
+                overview: m.overview,
+                poster_path: m.poster_path,
+                release_date: m.release_date,
+                vote_average: m.vote_average
+            };
+
+            await axios.post(`${FILMS_API}/films`, payload, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            await fetchMovies();
+            setMessage('✅ Film ajouté avec succès');
+            setTmdbResults(prev => prev.filter(x => String(x.id) !== String(m.id)));
+            setTimeout(() => setMessage(''), 2000);
+        } catch (error) {
+            console.error("Error adding movie:", error);
+            if (error.response?.status === 403) {
+                setMessage('❌ Action réservée aux administrateurs');
+            } else {
+                setMessage('❌ Erreur lors de l\'ajout: ' + (error.response?.data?.error || error.message));
+            }
+            setTimeout(() => setMessage(''), 2000);
+        }
+    };
+
+    const addReview = (movieId) => {
+        navigate(`/movie/${movieId}/review`);
+    };
+
+    const editMovie = async (movie) => {
+        const newTitle = window.prompt('Titre', movie.title) || movie.title;
+        const newOverview = window.prompt('Description', movie.overview) || movie.overview;
+        const newReleaseDate = window.prompt('Date de sortie', movie.release_date) || movie.release_date;
+        const newVoteAverage = window.prompt('Note', movie.vote_average) || movie.vote_average;
+
+        try {
+            const payload = {
+                title: newTitle,
+                overview: newOverview,
+                release_date: newReleaseDate,
+                vote_average: parseFloat(newVoteAverage),
+                poster_path: movie.poster_path
+            };
+
+            await axios.put(`${FILMS_API}/films/${movie._id || movie.id}`, payload, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            setMessage('✅ Film mis à jour avec succès');
+            setTimeout(() => setMessage(''), 2000);
+            fetchMovies();
+        } catch (error) {
+            console.error("Error updating movie:", error);
+            if (error.response?.status === 403) {
+                setMessage('❌ Action réservée aux administrateurs');
+            } else {
+                setMessage('❌ Erreur lors de la mise à jour: ' + (error.response?.data?.error || error.message));
+            }
+            setTimeout(() => setMessage(''), 2000);
+        }
+    };
+
+    const deleteMovie = async (movieId) => {
+        if (!window.confirm('Êtes-vous sûr de vouloir supprimer ce film ?')) return;
+
+        try {
+            await axios.delete(`${FILMS_API}/films/${movieId}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            setMessage('✅ Film supprimé avec succès');
+            setTimeout(() => setMessage(''), 2000);
+            fetchMovies();
+        } catch (error) {
+            console.error("Error deleting movie:", error);
+            if (error.response?.status === 403) {
+                setMessage('❌ Action réservée aux administrateurs');
+            } else {
+                setMessage('❌ Erreur lors de la suppression: ' + (error.response?.data?.error || error.message));
+            }
+            setTimeout(() => setMessage(''), 2000);
+        }
+    };
+
+    const handleLogout = () => {
+        console.log("🚪 Déconnexion");
+        localStorage.removeItem("token");
+        setToken(null);
+        navigate('/login', { replace: true });
+    };
+
+    // RENDER
+    if (loading) {
+        return (
+            <div style={{ textAlign: 'center', marginTop: '50px' }}>
+                <p>Chargement...</p>
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ padding: '20px' }}>
+            {/* Header */}
+            <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                marginBottom: '20px',
+                flexWrap: 'wrap',
+                gap: '10px'
+            }}>
+                <div>
+                    <h1 style={{ margin: 0 }}>🎬 Tous les Films</h1>
+                    <small style={{ color: '#666' }}>
+                        API: {FILMS_API} | 
+                        Utilisateur: {isAdmin ? 'Admin' : 'User'} |
+                        Token: {token ? '✓ Présent' : '✗ Absent'}
+                    </small>
+                </div>
+                
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {message && (
+                        <span style={{ 
+                            color: message.includes('❌') || message.includes('⚠️') ? 'red' : 'green', 
+                            marginRight: '10px',
+                            fontWeight: 'bold',
+                            padding: '8px 12px',
+                            backgroundColor: message.includes('❌') || message.includes('⚠️') ? '#ffebee' : '#e8f5e9',
+                            borderRadius: '4px',
+                            fontSize: '0.9rem'
+                        }}>
+                            {message}
+                        </span>
+                    )}
+                    
+                    {isAdmin && (
+                        <>
+                            <button 
+                                onClick={() => {
+                                    setShowTmdbPanel(!showTmdbPanel);
+                                    setShowUsersPanel(false);
+                                }}
+                                disabled={apiConnectionError}
+                                style={{
+                                    backgroundColor: apiConnectionError ? '#ccc' : (showTmdbPanel ? "#ff9800" : "#2196f3"),
+                                    color: "white",
+                                    padding: "8px 16px",
+                                    border: "none",
+                                    borderRadius: "4px",
+                                    cursor: apiConnectionError ? "not-allowed" : "pointer"
+                                }}
+                            >
+                                {showTmdbPanel ? '❌ Fermer TMDB' : '➕ Ajouter des films'}
+                            </button>
+                            
+                            <button 
+                                onClick={() => {
+                                    setShowUsersPanel(!showUsersPanel);
+                                    setShowTmdbPanel(false);
+                                }}
+                                style={{
+                                    backgroundColor: showUsersPanel ? "#ff9800" : "#9c27b0",
+                                    color: "white",
+                                    padding: "8px 16px",
+                                    border: "none",
+                                    borderRadius: "4px",
+                                    cursor: "pointer"
+                                }}
+                            >
+                                {showUsersPanel ? '❌ Fermer Users' : '👥 Gérer Users'}
+                            </button>
+                        </>
+                    )}
+                    
+                    <button 
+                        onClick={handleLogout}
+                        style={{
+                            backgroundColor: "#d32f2f",
+                            color: "white",
+                            padding: "8px 16px",
+                            border: "none",
+                            borderRadius: "4px",
+                            cursor: "pointer"
+                        }}
+                    >
+                        🚪 Déconnexion
+                    </button>
+                </div>
+            </div>
+
+            {/* Alert si API non accessible */}
+            {apiConnectionError && (
+                <div style={{
+                    backgroundColor: '#ffebee',
+                    border: '2px solid #f44336',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                }}>
+                    <span style={{ fontSize: '2rem' }}>⚠️</span>
+                    <div>
+                        <strong>Connexion à l'API impossible</strong>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '0.9rem' }}>
+                            Vérifiez que le serveur backend est démarré sur <code>{FILMS_API}</code>
+                        </p>
+                    </div>
+                    <button 
+                        onClick={fetchMovies}
+                        style={{
+                            marginLeft: 'auto',
+                            backgroundColor: '#2196f3',
+                            color: 'white',
+                            padding: '8px 16px',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        🔄 Réessayer
+                    </button>
+                </div>
+            )}
+
+            {/* Panel Gestion des Utilisateurs pour les admins */}
+            {isAdmin && showUsersPanel && (
+                <div style={{
+                    border: '2px solid #9c27b0',
+                    borderRadius: '8px',
+                    padding: '20px',
+                    marginBottom: '30px',
+                    backgroundColor: '#f3e5f5'
+                }}>
+                    <h2 style={{ marginTop: 0, color: '#7b1fa2' }}>👥 Gestion des Utilisateurs</h2>
+                    
+                    {/* Formulaire de création d'utilisateur */}
+                    <form onSubmit={createUser} style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                        gap: '10px',
+                        marginBottom: '20px',
+                        padding: '15px',
+                        backgroundColor: 'white',
+                        borderRadius: '6px'
+                    }}>
+                        <input 
+                            placeholder="Nom"
+                            value={userForm.nom}
+                            onChange={e => setUserForm({...userForm, nom: e.target.value})}
+                            style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                            required
+                        />
+                        <input 
+                            placeholder="Prénom"
+                            value={userForm.prenom}
+                            onChange={e => setUserForm({...userForm, prenom: e.target.value})}
+                            style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                            required
+                        />
+                        <input 
+                            placeholder="Email"
+                            type="email"
+                            value={userForm.email}
+                            onChange={e => setUserForm({...userForm, email: e.target.value})}
+                            style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                            required
+                        />
+                        <input 
+                            placeholder="Mot de passe"
+                            type="password"
+                            value={userForm.password}
+                            onChange={e => setUserForm({...userForm, password: e.target.value})}
+                            style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                            required
+                        />
+                        <select 
+                            value={userForm.role}
+                            onChange={e => setUserForm({...userForm, role: e.target.value})}
+                            style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                        >
+                            <option value="user">Utilisateur</option>
+                            <option value="admin">Administrateur</option>
+                        </select>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button type="submit" style={{
+                                backgroundColor: '#4caf50',
+                                color: 'white',
+                                padding: '8px 16px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                flex: 1
+                            }}>
+                                Créer Utilisateur
+                            </button>
+                            <button type="button" onClick={createAdmin} style={{
+                                backgroundColor: '#d32f2f',
+                                color: 'white',
+                                padding: '8px 16px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                flex: 1
+                            }}>
+                                Créer Admin
+                            </button>
+                        </div>
+                    </form>
+
+                    {/* Liste des utilisateurs */}
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ 
+                            width: '100%', 
+                            borderCollapse: 'collapse',
+                            backgroundColor: 'white',
+                            borderRadius: '6px',
+                            overflow: 'hidden'
+                        }}>
+                            <thead>
+                                <tr style={{ backgroundColor: '#7b1fa2', color: 'white' }}>
+                                    <th style={{ padding: '12px', textAlign: 'left' }}>ID</th>
+                                    <th style={{ padding: '12px', textAlign: 'left' }}>Nom</th>
+                                    <th style={{ padding: '12px', textAlign: 'left' }}>Prénom</th>
+                                    <th style={{ padding: '12px', textAlign: 'left' }}>Email</th>
+                                    <th style={{ padding: '12px', textAlign: 'left' }}>Rôle</th>
+                                    <th style={{ padding: '12px', textAlign: 'left' }}>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {users.map(user => (
+                                    <tr key={user.id} style={{ borderBottom: '1px solid #eee' }}>
+                                        <td style={{ padding: '12px' }}>{user.id}</td>
+                                        <td style={{ padding: '12px' }}>{user.nom}</td>
+                                        <td style={{ padding: '12px' }}>{user.prenom}</td>
+                                        <td style={{ padding: '12px' }}>{user.email}</td>
+                                        <td style={{ padding: '12px' }}>
+                                            <span style={{
+                                                padding: '4px 8px',
+                                                borderRadius: '12px',
+                                                fontSize: '0.8rem',
+                                                backgroundColor: user.role === 'admin' ? '#ffebee' : '#e8f5e9',
+                                                color: user.role === 'admin' ? '#c62828' : '#2e7d32'
+                                            }}>
+                                                {user.role}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                            <button 
+                                                onClick={() => editUser(user)}
+                                                style={{
+                                                    backgroundColor: '#ff9800',
+                                                    color: 'white',
+                                                    padding: '6px 12px',
+                                                    border: 'none',
+                                                    borderRadius: '4px',
+                                                    cursor: 'pointer',
+                                                    marginRight: '8px'
+                                                }}
+                                            >
+                                                ✏️ Modifier
+                                            </button>
+                                            <button 
+                                                onClick={() => deleteUser(user.id)}
+                                                style={{
+                                                    backgroundColor: '#f44336',
+                                                    color: 'white',
+                                                    padding: '6px 12px',
+                                                    border: 'none',
+                                                    borderRadius: '4px',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                🗑️ Supprimer
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* Panel TMDB pour les admins */}
+            {isAdmin && showTmdbPanel && (
+                <div style={{
+                    border: '2px solid #2196f3',
+                    borderRadius: '8px',
+                    padding: '20px',
+                    marginBottom: '30px',
+                    backgroundColor: '#f5f5f5'
+                }}>
+                    <h2 style={{ marginTop: 0 }}>📽️ Catalogue TMDB</h2>
+                    
+                    <div style={{ marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button 
+                            onClick={() => { 
+                                setTmdbMode('popular'); 
+                                setTmdbPage(1); 
+                                fetchPopular(1); 
+                            }}
+                            style={{
+                                backgroundColor: tmdbMode === 'popular' ? '#2196f3' : '#ccc',
+                                color: 'white',
+                                padding: '8px 16px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            🔥 Populaires
+                        </button>
+                        <button 
+                            onClick={() => { 
+                                setTmdbMode('search'); 
+                                setTmdbResults([]); 
+                                setTmdbPage(1); 
+                            }}
+                            style={{
+                                backgroundColor: tmdbMode === 'search' ? '#2196f3' : '#ccc',
+                                color: 'white',
+                                padding: '8px 16px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            🔍 Rechercher
+                        </button>
+                    </div>
+
+                    {tmdbMode === 'search' && (
+                        <div style={{ marginBottom: '16px', display: 'flex', gap: '10px' }}>
+                            <input 
+                                placeholder="Rechercher un film sur TMDB..." 
+                                value={tmdbQuery} 
+                                onChange={e => setTmdbQuery(e.target.value)}
+                                onKeyPress={e => e.key === 'Enter' && searchTmdb(tmdbQuery, 1)}
+                                style={{ 
+                                    flex: 1, 
+                                    padding: '10px',
+                                    borderRadius: '4px',
+                                    border: '1px solid #ddd'
+                                }} 
+                            />
+                            <button 
+                                onClick={() => searchTmdb(tmdbQuery, 1)}
+                                style={{
+                                    backgroundColor: '#4caf50',
+                                    color: 'white',
+                                    padding: '10px 20px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Rechercher
+                            </button>
+                        </div>
+                    )}
+
+                    {tmdbLoading ? (
+                        <div style={{ textAlign: 'center', padding: '20px' }}>
+                            <div style={{ 
+                                display: 'inline-block',
+                                width: '40px',
+                                height: '40px',
+                                border: '4px solid #f3f3f3',
+                                borderTop: '4px solid #2196f3',
+                                borderRadius: '50%',
+                                animation: 'spin 1s linear infinite'
+                            }}></div>
+                            <p>Chargement des films...</p>
+                        </div>
+                    ) : (
+                        <>
+                            <div style={{ 
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                                gap: '15px',
+                                marginBottom: '16px'
+                            }}>
+                                {tmdbResults.map(m => (
+                                    <div key={m.id} style={{
+                                        border: '1px solid #ddd',
+                                        borderRadius: '8px',
+                                        padding: '10px',
+                                        textAlign: 'center',
+                                        backgroundColor: 'white',
+                                        transition: 'transform 0.2s, box-shadow 0.2s',
+                                    }}
+                                    onMouseEnter={e => {
+                                        e.currentTarget.style.transform = 'translateY(-4px)';
+                                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                                    }}
+                                    onMouseLeave={e => {
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                        e.currentTarget.style.boxShadow = 'none';
+                                    }}>
+                                        {m.poster_path ? (
+                                            <img 
+                                                src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} 
+                                                alt={m.title} 
+                                                style={{ 
+                                                    width: '100%', 
+                                                    borderRadius: '6px',
+                                                    marginBottom: '8px'
+                                                }} 
+                                            />
+                                        ) : (
+                                            <div style={{ 
+                                                width: '100%', 
+                                                height: '240px', 
+                                                background: '#ccc',
+                                                borderRadius: '6px',
+                                                marginBottom: '8px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center'
+                                            }}>🎬</div>
+                                        )}
+                                        <div style={{ fontSize: '13px', marginBottom: '8px', fontWeight: 'bold' }}>
+                                            {m.title}
+                                        </div>
+                                        <button 
+                                            onClick={() => addFromTmdb(m)}
+                                            style={{
+                                                backgroundColor: '#4caf50',
+                                                color: 'white',
+                                                padding: '6px 12px',
+                                                border: 'none',
+                                                borderRadius: '4px',
+                                                cursor: 'pointer',
+                                                width: '100%'
+                                            }}
+                                        >
+                                            ➕ Ajouter
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {tmdbResults.length === 0 && tmdbMode === 'search' && tmdbQuery && (
+                                <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                                    <p>Aucun résultat pour "{tmdbQuery}"</p>
+                                </div>
+                            )}
+
+                            {tmdbResults.length > 0 && (
+                                <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', alignItems: 'center' }}>
+                                    <button 
+                                        onClick={() => {
+                                            const newPage = Math.max(1, tmdbPage - 1);
+                                            setTmdbPage(newPage);
+                                            if (tmdbMode === 'popular') fetchPopular(newPage);
+                                            else searchTmdb(tmdbQuery, newPage);
+                                        }}
+                                        disabled={tmdbPage <= 1}
+                                        style={{
+                                            backgroundColor: tmdbPage <= 1 ? '#ccc' : '#2196f3',
+                                            color: 'white',
+                                            padding: '8px 16px',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            cursor: tmdbPage <= 1 ? 'not-allowed' : 'pointer'
+                                        }}
+                                    >
+                                        ← Précédent
+                                    </button>
+                                    <span>Page {tmdbPage} / {tmdbTotalPages}</span>
+                                    <button 
+                                        onClick={() => {
+                                            const newPage = Math.min(tmdbTotalPages, tmdbPage + 1);
+                                            setTmdbPage(newPage);
+                                            if (tmdbMode === 'popular') fetchPopular(newPage);
+                                            else searchTmdb(tmdbQuery, newPage);
+                                        }}
+                                        disabled={tmdbPage >= tmdbTotalPages}
+                                        style={{
+                                            backgroundColor: tmdbPage >= tmdbTotalPages ? '#ccc' : '#2196f3',
+                                            color: 'white',
+                                            padding: '8px 16px',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            cursor: tmdbPage >= tmdbTotalPages ? 'not-allowed' : 'pointer'
+                                        }}
+                                    >
+                                        Suivant →
+                                    </button>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
+
+            {/* Liste des films */}
+            <h2>📚 Ma Collection ({movies.length})</h2>
+            <ul style={{ 
+                listStyle: 'none', 
+                padding: 0,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                gap: '20px'
+            }}>
+                {movies.length > 0 ? (
+                    movies.map(movie => (
+                        <li key={movie.id || movie._id} style={{
+                            border: '1px solid #ddd',
+                            borderRadius: '8px',
+                            padding: '16px',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                            transition: 'transform 0.2s',
+                        }}>
+                            {movie.poster_path ? (
+                                <img 
+                                    src={`https://image.tmdb.org/t/p/w500${movie.poster_path}`} 
+                                    alt={movie.title} 
+                                    style={{ 
+                                        width: "100%", 
+                                        height: "400px", 
+                                        objectFit: "cover",
+                                        borderRadius: "6px",
+                                        marginBottom: "10px"
+                                    }} 
+                                />
+                            ) : (
+                                <div style={{ 
+                                    width: "100%", 
+                                    height: "400px", 
+                                    background: "#ccc",
+                                    borderRadius: "6px",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    marginBottom: "10px"
+                                }}>
+                                    
+                                </div>
+                            )}
+                            
+                            <h2 style={{ 
+                                fontSize: '1.2rem', 
+                                marginBottom: '8px',
+                                color: '#333'
+                            }}>
+                                {movie.title}
+                            </h2>
+                            
+                            {movie.overview && (
+                                <p style={{ 
+                                    fontSize: '0.9rem', 
+                                    color: '#666',
+                                    marginBottom: '8px',
+                                    lineHeight: '1.4'
+                                }}>
+                                    {movie.overview.substring(0, 150)}
+                                    {movie.overview.length > 150 ? '...' : ''}
+                                </p>
+                            )}
+                            
+                            <div style={{ 
+                                display: 'flex', 
+                                gap: '10px', 
+                                fontSize: '0.9rem',
+                                marginBottom: '12px',
+                                color: '#555'
+                            }}>
+                                {movie.release_date && (
+                                    <p style={{ margin: 0 }}>
+                                        📅 {movie.release_date}
+                                    </p>
+                                )}
+                                {movie.vote_average && (
+                                    <p style={{ margin: 0 }}>
+                                        ⭐ {movie.vote_average}/10
+                                    </p>
+                                )}
+                            </div>
+                            
+                            <div style={{ 
+                                display: 'flex', 
+                                gap: '8px',
+                                flexWrap: 'wrap'
+                            }}>
+                                {!isAdmin ? (
+                                    <>
+                                    <button 
+                                            onClick={() => addReview(movie.id || movie._id)}
+                                            style={{
+                                                backgroundColor: "#5e35b1",
+                                                color: "white",
+                                                padding: "8px 12px",
+                                                border: "none",
+                                                borderRadius: "4px",
+                                                cursor: "pointer",
+                                                flex: 1
+                                            }}
+                                        >
+                                             Ajouter une Critique
+                                        </button>
+                                        <button 
+                                            onClick={() => navigate(`/movie/${movie.id || movie._id}`)}
+                                            style={{
+                                                backgroundColor: "#5e35b1",
+                                                color: "white",
+                                                padding: "8px 12px",
+                                                border: "none",
+                                                borderRadius: "4px",
+                                                cursor: "pointer",
+                                                flex: 1
+                                            }}
+                                        >
+                                             Voir le detail du film
+                                        </button>
+                                        </>
+                                        
+
+                                ) : (
+                                    <>
+                                        <button 
+                                            onClick={() => addReview(movie.id || movie._id)}
+                                            style={{
+                                                backgroundColor: "#5e35b1",
+                                                color: "white",
+                                                padding: "8px 12px",
+                                                border: "none",
+                                                borderRadius: "4px",
+                                                cursor: "pointer",
+                                                flex: 1
+                                            }}
+                                        >
+                                            ✏️ Critique
+                                        </button>
+                                        <button 
+                                            onClick={() => editMovie(movie)}
+                                            style={{
+                                                backgroundColor: "#ff9800",
+                                                color: "white",
+                                                padding: "8px 12px",
+                                                border: "none",
+                                                borderRadius: "4px",
+                                                cursor: "pointer",
+                                                flex: 1
+                                            }}
+                                        >
+                                            ✏️ Modifier
+                                        </button>
+                                        <button 
+                                            onClick={() => deleteMovie(movie._id || movie.id)}
+                                            style={{
+                                                backgroundColor: "#f44336",
+                                                color: "white",
+                                                padding: "8px 12px",
+                                                border: "none",
+                                                borderRadius: "4px",
+                                                cursor: "pointer",
+                                                flex: 1
+                                            }}
+                                        >
+                                            🗑️ Supprimer
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        </li>
+                    ))
+                ) : (
+                    <p style={{ 
+                        textAlign: 'center', 
+                        gridColumn: '1 / -1',
+                        fontSize: '1.2rem',
+                        color: '#999',
+                        marginTop: '40px'
+                    }}>
+                        📽️ Aucun film disponible
+                        {isAdmin && <><br /><span style={{ fontSize: '0.9rem' }}>Cliquez sur "➕ Ajouter des films" pour commencer</span></>}
+                    </p>
+                )}
+            </ul>
+        </div>
+    );
+};
+
+export default Home;
