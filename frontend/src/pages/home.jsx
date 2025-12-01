@@ -144,7 +144,7 @@ const Home = () => {
         if (!isAdmin) return;
         
         try {
-            const response = await axios.get(`${FILMS_API}/users`, {
+            const response = await axios.get(`localhost:3000/users`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -160,7 +160,7 @@ const Home = () => {
     const createUser = async (e) => {
         e.preventDefault();
         try {
-            await axios.post(`${FILMS_API}/users`, userForm, {
+            await axios.post(`http://localhost:3000/register`, userForm, {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
