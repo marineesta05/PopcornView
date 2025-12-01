@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
 
-// URL de l'API films
 const FILMS_API = 'http://localhost:4000/api';
 
 const Home = () => {
@@ -15,18 +14,29 @@ const Home = () => {
     const [message, setMessage] = useState('');
     const [token, setToken] = useState(localStorage.getItem("token"));
     
-    // États pour TMDB (admin uniquement)
     const [showTmdbPanel, setShowTmdbPanel] = useState(false);
     const [showUsersPanel, setShowUsersPanel] = useState(false);
-    const [tmdbMode, setTmdbMode] = useState('popular');
+    const [tmdbMode, setTmdbMode] = useState('search');
     const [tmdbQuery, setTmdbQuery] = useState('');
     const [tmdbResults, setTmdbResults] = useState([]);
     const [tmdbPage, setTmdbPage] = useState(1);
     const [tmdbTotalPages, setTmdbTotalPages] = useState(1);
     const [tmdbLoading, setTmdbLoading] = useState(false);
     const [apiConnectionError, setApiConnectionError] = useState(false);
+    const [catalogPages, setCatalogPages] = useState(1);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [showDeletedPanel, setShowDeletedPanel] = useState(false);
+    const [deletedFilms, setDeletedFilms] = useState([]);
+    const [deletedLoading, setDeletedLoading] = useState(false);
+    const [showCommentsPanel, setShowCommentsPanel] = useState(false);
+    const [comments, setComments] = useState([]);
+    const [commentsLoading, setCommentsLoading] = useState(false);
+    const [userQuery, setUserQuery] = useState('');
+    const [userResults, setUserResults] = useState([]);
+    const [userLoading, setUserLoading] = useState(false);
+    const [userPage, setUserPage] = useState(1);
+    const [userTotalPages, setUserTotalPages] = useState(1);
     
-    // États pour la gestion des utilisateurs
     const [userForm, setUserForm] = useState({
         nom: '',
         prenom: '',
@@ -35,7 +45,6 @@ const Home = () => {
         role: 'user'
     });
     
-    // Vérification de l'authentification
     useEffect(() => {
         const checkAuth = () => {
             const currentToken = localStorage.getItem("token");
@@ -73,15 +82,109 @@ const Home = () => {
     
     useEffect(() => {
         if (!loading && token) {
-            console.log("🔄 Chargement des films...");
-            fetchMovies();
-            if (isAdmin) {
-                fetchUsers();
+                console.log("🔄 Chargement des films...");
+                fetchMovies(catalogPages);
+                if (isAdmin) {
+                    fetchUsers();
+                }
             }
-        }
-    }, [loading, token, isAdmin]);
+    }, [loading, token, isAdmin, catalogPages]);
 
-    // Fonction pour vérifier la connexion à l'API
+    const fetchDeletedFilms = async () => {
+        if (!token) return;
+        setDeletedLoading(true);
+        try {
+            const resp = await axios.get(`${FILMS_API}/films/deleted`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 10000
+            });
+            setDeletedFilms(resp.data || []);
+        } catch (err) {
+            console.error('Erreur fetchDeletedFilms', err);
+            setMessage('Erreur lors du chargement des films supprimés');
+            setTimeout(() => setMessage(''), 3000);
+        } finally {
+            setDeletedLoading(false);
+        }
+    };
+
+    const restoreDeleted = async (movieId) => {
+        if (!token) return;
+        if (!window.confirm('Restaurer ce film ?')) return;
+        try {
+            await axios.post(`${FILMS_API}/films/${movieId}/restore`, {}, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            setMessage('✅ Film restauré');
+            fetchMovies();
+            fetchDeletedFilms();
+            setTimeout(() => setMessage(''), 2000);
+        } catch (err) {
+            console.error('Erreur restoreDeleted', err);
+            setMessage('❌ Impossible de restaurer');
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
+
+    const fetchComments = async () => {
+        if (!token) return;
+        setCommentsLoading(true);
+        try {
+            const res = await axios.get('http://localhost:3003/reviews', {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 10000
+            });
+            const rows = res.data || [];
+
+            const enriched = await Promise.all(rows.map(async r => {
+                const movieId = r.movie_id;
+                let title = '';
+                try {
+                    const mres = await axios.get(`${FILMS_API}/movies/${movieId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` },
+                        timeout: 8000
+                    });
+                    title = mres.data && (mres.data.title || mres.data.name) ? (mres.data.title || mres.data.name) : '';
+                } catch (e) {
+                }
+                return {
+                    id: r.id,
+                    movie_id: r.movie_id,
+                    title,
+                    user_email: r.email || r.user_email || r.user || '',
+                    rating: r.rating || r.note || r.score || null,
+                    comment: r.comment || r.commentaire || ''
+                };
+            }));
+
+            setComments(enriched);
+        } catch (err) {
+            console.error('Error fetching comments', err);
+            setMessage('Erreur lors du chargement des commentaires');
+            setTimeout(() => setMessage(''), 3000);
+        } finally {
+            setCommentsLoading(false);
+        }
+    };
+
+    const deleteComment = async (id) => {
+        if (!token) return;
+        if (!window.confirm('Supprimer ce commentaire définitivement ?')) return;
+        try {
+            await axios.delete(`http://localhost:3003/reviews/${id}`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 10000
+            });
+            setMessage('✅ Commentaire supprimé');
+            fetchComments();
+            setTimeout(() => setMessage(''), 2000);
+        } catch (err) {
+            console.error('Error deleting comment', err);
+            setMessage('❌ Impossible de supprimer le commentaire');
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
+
     const checkApiConnection = async () => {
         try {
             await axios.get(`${FILMS_API}/health`, { timeout: 5000 });
@@ -95,31 +198,100 @@ const Home = () => {
         }
     };
 
-    const fetchMovies = async () => {
+    const searchForUser = async (q, page = 1) => {
+        if (!q) {
+            setUserResults([]);
+            return;
+        }
+        setUserLoading(true);
+        try {
+            const response = await axios.get(`${FILMS_API}/tmdb/search?q=${encodeURIComponent(q)}&page=${page}`, {
+                timeout: 10000,
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            let results = response.data.results || [];
+            try {
+                const delResp = await axios.get(`${FILMS_API}/films/deleted`, {
+                    timeout: 8000,
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const deleted = delResp.data || [];
+                const deletedIds = new Set((deleted || []).map(d => String(d._id || d.id)));
+                results = (results || []).filter(r => !deletedIds.has(String(r.id)));
+            } catch (e) {
+                console.warn('Could not fetch deleted films to filter user results', e && e.message ? e.message : e);
+            }
+            setUserResults(results);
+            setUserPage(response.data.page || 1);
+            setUserTotalPages(response.data.total_pages || 1);
+        } catch (err) {
+            console.error('Error searchForUser', err);
+            setMessage('Erreur lors de la recherche de films');
+            setTimeout(() => setMessage(''), 3000);
+        } finally {
+            setUserLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const q = (userQuery || '').trim();
+        if (!q) {
+            setUserResults([]);
+            setUserPage(1);
+            setUserTotalPages(1);
+            return;
+        }
+        const id = setTimeout(() => searchForUser(q, 1), 300);
+        return () => clearTimeout(id);
+    }, [userQuery]);
+
+    const fetchMovies = async (pages = catalogPages, append = false) => {
         if (!token) {
             console.log("❌ Aucun token disponible pour fetchMovies");
             return;
         }
 
+        if (append) setLoadingMore(true);
         try {
-            console.log("🔄 Fetch films avec token:", token);
-            
-            const response = await axios.get(`${FILMS_API}/films`, {
+            console.log("🔄 Fetch catalog avec token:", token);
+            const response = await axios.get(`${FILMS_API}/catalog?pages=${pages}`, {
                 timeout: 10000,
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 }
             });
-            
-            console.log("✅ Films récupérés:", response.data.length, "films");
-            setMovies(response.data || []);
+
+            const results = response.data && response.data.results ? response.data.results : [];
+            const prepared = (results || []).map(f => Object.assign({}, f, { added: true }));
+            const visible = prepared.filter(f => !f.deleted);
+            console.log("✅ Catalog récupéré:", results.length, "films (", visible.length, "visible)");
+            if (append) {
+                setMovies(prev => {
+                    const merged = [...(prev || []), ...(visible || [])];
+                    const dedup = Array.from(new Map(merged.map(m => [m.id || m._id, m])).values());
+                    return dedup;
+                });
+            } else {
+                setMovies(visible || []);
+            }
             setApiConnectionError(false);
-            
         } catch (error) {
-            console.error("❌ Erreur fetchMovies:", error);
+            if (append) setLoadingMore(false);
+            console.error("❌ Erreur fetchMovies (catalog):", error);
+            try {
+                const resp2 = await axios.get(`${FILMS_API}/films`, {
+                    timeout: 10000,
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                setMovies(resp2.data || []);
+                setApiConnectionError(false);
+                return;
+            } catch (err2) {
+                console.error('Fallback fetch stored films failed', err2);
+            }
+
             console.error("Détails:", error.response?.data);
-            
             if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
                 setMessage(`❌ Impossible de se connecter à l'API Films (${FILMS_API}). Vérifiez que le serveur backend est démarré.`);
                 setApiConnectionError(true);
@@ -134,12 +306,12 @@ const Home = () => {
             } else {
                 setMessage('Erreur lors du chargement des films: ' + (error.response?.data?.error || error.message));
             }
-            
             setTimeout(() => setMessage(''), 5000);
+        } finally {
+            if (append) setLoadingMore(false);
         }
     };
 
-    // Fonctions pour la gestion des utilisateurs (admin seulement)
     const fetchUsers = async () => {
         if (!isAdmin) return;
         
@@ -248,7 +420,6 @@ const Home = () => {
         }
     };
 
-    // Fonctions TMDB existantes (gardées telles quelles)
     const fetchPopular = async (page = 1) => {
         setTmdbLoading(true);
         try {
@@ -308,6 +479,20 @@ const Home = () => {
             setTmdbLoading(false);
         }
     };
+
+    useEffect(() => {
+        const q = (tmdbQuery || '').trim();
+        if (!q) {
+            setTmdbResults([]);
+            setTmdbPage(1);
+            setTmdbTotalPages(1);
+            return;
+        }
+        const id = setTimeout(() => {
+            searchTmdb(q, 1);
+        }, 350);
+        return () => clearTimeout(id);
+    }, [tmdbQuery]);
 
     const addFromTmdb = async (m) => {
         try {
@@ -421,7 +606,6 @@ const Home = () => {
         navigate('/login', { replace: true });
     };
 
-    // RENDER
     if (loading) {
         return (
             <div style={{ textAlign: 'center', marginTop: '50px' }}>
@@ -482,7 +666,26 @@ const Home = () => {
                                     cursor: apiConnectionError ? "not-allowed" : "pointer"
                                 }}
                             >
-                                {showTmdbPanel ? '❌ Fermer TMDB' : '➕ Ajouter des films'}
+                                {showTmdbPanel ? '❌ Fermer TMDB' : '🔎 Explorer TMDB'}
+                            </button>
+                            
+                            <button 
+                                onClick={() => {
+                                    setShowDeletedPanel(!showDeletedPanel);
+                                    setShowTmdbPanel(false);
+                                    setShowUsersPanel(false);
+                                    if (!showDeletedPanel) fetchDeletedFilms();
+                                }}
+                                style={{
+                                    backgroundColor: showDeletedPanel ? "#ff9800" : "#607d8b",
+                                    color: "white",
+                                    padding: "8px 16px",
+                                    border: "none",
+                                    borderRadius: "4px",
+                                    cursor: "pointer"
+                                }}
+                            >
+                                {showDeletedPanel ? '❌ Fermer Supprimés' : '🗄️ Films supprimés'}
                             </button>
                             
                             <button 
@@ -500,6 +703,25 @@ const Home = () => {
                                 }}
                             >
                                 {showUsersPanel ? '❌ Fermer Users' : '👥 Gérer Users'}
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowCommentsPanel(!showCommentsPanel);
+                                    setShowTmdbPanel(false);
+                                    setShowUsersPanel(false);
+                                    setShowDeletedPanel(false);
+                                    if (!showCommentsPanel) fetchComments();
+                                }}
+                                style={{
+                                    backgroundColor: showCommentsPanel ? '#ff9800' : '#00796b',
+                                    color: 'white',
+                                    padding: '8px 16px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                {showCommentsPanel ? '❌ Fermer Commentaires' : '💬 Tous les commentaires'}
                             </button>
                         </>
                     )}
@@ -553,6 +775,58 @@ const Home = () => {
                     >
                         🔄 Réessayer
                     </button>
+                </div>
+            )}
+
+            {/* Recherche utilisateur (visible pour les users) */}
+            {!isAdmin && (
+                <div style={{
+                    border: '2px solid #e0e0e0',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '20px',
+                    backgroundColor: '#fafafa'
+                }}>
+                    <h3 style={{ marginTop: 0 }}>🔎 Rechercher un film à noter</h3>
+                    <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+                        <input
+                            placeholder="Tapez le titre..."
+                            value={userQuery}
+                            onChange={e => setUserQuery(e.target.value)}
+                            style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }}
+                        />
+                        <button
+                            onClick={() => searchForUser(userQuery, 1)}
+                            disabled={!userQuery || userLoading}
+                            style={{ backgroundColor: '#1976d2', color: 'white', padding: '10px 16px', border: 'none', borderRadius: '6px', cursor: !userQuery || userLoading ? 'not-allowed' : 'pointer' }}
+                        >
+                            {userLoading ? 'Recherche...' : 'Rechercher'}
+                        </button>
+                    </div>
+
+                    {userResults && userResults.length > 0 && (
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                            gap: '12px'
+                        }}>
+                            {userResults.map(m => (
+                                <div key={m.id} style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '8px', background: 'white', textAlign: 'center' }}>
+                                    {m.poster_path ? (
+                                        <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} style={{ width: '100%', borderRadius: '6px', marginBottom: '8px' }} />
+                                    ) : (
+                                        <div style={{ height: '180px', background: '#eee', borderRadius: '6px', marginBottom: '8px' }} />
+                                    )}
+                                    <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '6px' }}>{m.title}</div>
+                                    <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>{m.release_date || ''}</div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => addReview(m.id)} style={{ flex: 1, backgroundColor: '#5e35b1', color: 'white', border: 'none', padding: '8px', borderRadius: '6px', cursor: 'pointer' }}>Noter</button>
+                                        <button onClick={() => navigate(`/movie/${m.id}`)} style={{ flex: 1, backgroundColor: '#9c27b0', color: 'white', border: 'none', padding: '8px', borderRadius: '6px', cursor: 'pointer' }}>Détails</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -715,6 +989,100 @@ const Home = () => {
                 </div>
             )}
 
+            {/* Panel Films Supprimés (admin) */}
+            {isAdmin && showDeletedPanel && (
+                <div style={{
+                    border: '2px solid #607d8b',
+                    borderRadius: '8px',
+                    padding: '20px',
+                    marginBottom: '30px',
+                    backgroundColor: '#fafafa'
+                }}>
+                    <h2 style={{ marginTop: 0 }}>🗄️ Films Supprimés</h2>
+                    {deletedLoading ? (
+                        <p>Chargement...</p>
+                    ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: '6px', overflow: 'hidden' }}>
+                                <thead>
+                                    <tr style={{ backgroundColor: '#607d8b', color: 'white' }}>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>ID</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Titre</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Date</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {deletedFilms.length === 0 ? (
+                                        <tr><td style={{ padding: '12px' }} colSpan={4}>Aucun film supprimé</td></tr>
+                                    ) : deletedFilms.map(df => (
+                                        <tr key={df._id || df.id} style={{ borderBottom: '1px solid #eee' }}>
+                                            <td style={{ padding: '12px' }}>{df._id || df.id}</td>
+                                            <td style={{ padding: '12px' }}>{df.title}</td>
+                                            <td style={{ padding: '12px' }}>{df.release_date || ''}</td>
+                                            <td style={{ padding: '12px' }}>
+                                                <button onClick={() => restoreDeleted(String(df._id || df.id))} style={{ backgroundColor: '#4caf50', color: 'white', padding: '6px 12px', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+                                                    ♻️ Restaurer
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Panel Commentaires (admin) */}
+            {isAdmin && showCommentsPanel && (
+                <div style={{
+                    border: '2px solid #00796b',
+                    borderRadius: '8px',
+                    padding: '20px',
+                    marginBottom: '30px',
+                    backgroundColor: '#f1f8f7'
+                }}>
+                    <h2 style={{ marginTop: 0 }}>💬 Tous les Commentaires</h2>
+                    {commentsLoading ? (
+                        <p>Chargement des commentaires...</p>
+                    ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: '6px', overflow: 'hidden' }}>
+                                <thead>
+                                    <tr style={{ backgroundColor: '#00796b', color: 'white' }}>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>ID</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Film</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Auteur</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Note</th>
+                                        <th style={{ padding: '12px', textAlign: 'left', width: '40%' }}>Commentaire</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {comments.length === 0 ? (
+                                        <tr><td style={{ padding: '12px' }} colSpan={6}>Aucun commentaire</td></tr>
+                                    ) : comments.map(c => (
+                                        <tr key={c.id} style={{ borderBottom: '1px solid #eee' }}>
+                                            <td style={{ padding: '12px' }}>{c.id}</td>
+                                            <td style={{ padding: '12px' }}>{c.title || `#${c.movie_id}`}</td>
+                                            <td style={{ padding: '12px' }}>{c.user_email}</td>
+                                            <td style={{ padding: '12px' }}>{c.rating || '-'}</td>
+                                            <td style={{ padding: '12px' }}>{c.comment}</td>
+                                            <td style={{ padding: '12px' }}>
+                                                <button onClick={() => deleteComment(c.id)} style={{ backgroundColor: '#f44336', color: 'white', padding: '6px 12px', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+                                                    🗑️ Supprimer
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Panel TMDB pour les admins */}
             {isAdmin && showTmdbPanel && (
                 <div style={{
@@ -727,40 +1095,23 @@ const Home = () => {
                     <h2 style={{ marginTop: 0 }}>📽️ Catalogue TMDB</h2>
                     
                     <div style={{ marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <button 
-                            onClick={() => { 
-                                setTmdbMode('popular'); 
-                                setTmdbPage(1); 
-                                fetchPopular(1); 
-                            }}
-                            style={{
-                                backgroundColor: tmdbMode === 'popular' ? '#2196f3' : '#ccc',
-                                color: 'white',
-                                padding: '8px 16px',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            🔥 Populaires
-                        </button>
-                        <button 
-                            onClick={() => { 
-                                setTmdbMode('search'); 
-                                setTmdbResults([]); 
-                                setTmdbPage(1); 
-                            }}
-                            style={{
-                                backgroundColor: tmdbMode === 'search' ? '#2196f3' : '#ccc',
-                                color: 'white',
-                                padding: '8px 16px',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            🔍 Rechercher
-                        </button>
+                            <button 
+                                onClick={() => { 
+                                    setTmdbMode('search'); 
+                                    setTmdbResults([]); 
+                                    setTmdbPage(1); 
+                                }}
+                                style={{
+                                    backgroundColor: '#2196f3',
+                                    color: 'white',
+                                    padding: '8px 16px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                🔍 Rechercher
+                            </button>
                     </div>
 
                     {tmdbMode === 'search' && (
@@ -769,7 +1120,6 @@ const Home = () => {
                                 placeholder="Rechercher un film sur TMDB..." 
                                 value={tmdbQuery} 
                                 onChange={e => setTmdbQuery(e.target.value)}
-                                onKeyPress={e => e.key === 'Enter' && searchTmdb(tmdbQuery, 1)}
                                 style={{ 
                                     flex: 1, 
                                     padding: '10px',
@@ -857,9 +1207,9 @@ const Home = () => {
                                             {m.title}
                                         </div>
                                         <button 
-                                            onClick={() => addFromTmdb(m)}
+                                            onClick={() => deleteMovie(String(m.id))}
                                             style={{
-                                                backgroundColor: '#4caf50',
+                                                backgroundColor: '#f44336',
                                                 color: 'white',
                                                 padding: '6px 12px',
                                                 border: 'none',
@@ -868,7 +1218,7 @@ const Home = () => {
                                                 width: '100%'
                                             }}
                                         >
-                                            ➕ Ajouter
+                                            🗑️ Supprimer
                                         </button>
                                     </div>
                                 ))}
@@ -886,8 +1236,7 @@ const Home = () => {
                                         onClick={() => {
                                             const newPage = Math.max(1, tmdbPage - 1);
                                             setTmdbPage(newPage);
-                                            if (tmdbMode === 'popular') fetchPopular(newPage);
-                                            else searchTmdb(tmdbQuery, newPage);
+                                            searchTmdb(tmdbQuery, newPage);
                                         }}
                                         disabled={tmdbPage <= 1}
                                         style={{
@@ -906,8 +1255,7 @@ const Home = () => {
                                         onClick={() => {
                                             const newPage = Math.min(tmdbTotalPages, tmdbPage + 1);
                                             setTmdbPage(newPage);
-                                            if (tmdbMode === 'popular') fetchPopular(newPage);
-                                            else searchTmdb(tmdbQuery, newPage);
+                                            searchTmdb(tmdbQuery, newPage);
                                         }}
                                         disabled={tmdbPage >= tmdbTotalPages}
                                         style={{
@@ -928,7 +1276,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Liste des films */}
+            {}
             <h2>📚 Ma Collection ({movies.length})</h2>
             <ul style={{ 
                 listStyle: 'none', 
@@ -1112,6 +1460,27 @@ const Home = () => {
                     </p>
                 )}
             </ul>
+            {}
+            <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                <button
+                    onClick={() => {
+                        const next = catalogPages + 1;
+                        setCatalogPages(next);
+                        fetchMovies(next, true);
+                    }}
+                    disabled={apiConnectionError || loadingMore}
+                    style={{
+                        backgroundColor: apiConnectionError ? '#ccc' : '#1976d2',
+                        color: 'white',
+                        padding: '10px 18px',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: apiConnectionError ? 'not-allowed' : 'pointer'
+                    }}
+                >
+                    {loadingMore ? 'Chargement...' : '🔽 Charger plus de films'}
+                </button>
+            </div>
         </div>
     );
 };
