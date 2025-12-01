@@ -5,6 +5,7 @@ const FRONTEND_TMDB_KEY = process.env.REACT_APP_TMDB_API_KEY || '';
 
 export default function AdminMovies() {
   const [films, setFilms] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -17,8 +18,37 @@ export default function AdminMovies() {
   const [saveAddedToServer, setSaveAddedToServer] = useState(true);
   const [backendHasKey, setBackendHasKey] = useState(null); 
   const [deletedFilms, setDeletedFilms] = useState([]);
+  const [filmSearch, setFilmSearch] = useState('');
+  const [attemptedImport, setAttemptedImport] = useState(false);
 
-  useEffect(() => { fetchFilms(); fetchDeletedFilms(); }, []);
+  useEffect(() => { fetchFilms(); fetchDeletedFilms(); fetchCatalog(); }, []);
+
+  async function fetchCatalog() {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const res = await fetch(`${API}/api/catalog?pages=10`, { headers });
+      if (!res.ok) {
+        const txt = await res.text(); throw new Error(txt || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setCatalog(data.results || []);
+    } catch (err) {
+      // fallback: if catalog fetch fails, leave catalog empty (UI still shows TMDB area)
+      setMessage('Failed to load catalog: ' + String(err.message || err));
+    } finally { setLoading(false); }
+  }
+
+  // If stored films are empty after initial load, attempt to import TMDB catalog
+  useEffect(() => {
+    if (attemptedImport) return;
+    if (loading) return;
+    if (Array.isArray(films) && films.length === 0) {
+      setAttemptedImport(true);
+      importTmdbToServer();
+    }
+  }, [films, loading, attemptedImport]);
 
   useEffect(() => { fetchPopular(1); }, []);
 
@@ -189,34 +219,85 @@ export default function AdminMovies() {
     return { page: 1, total_pages: 1, results: [] };
   }
 
+  async function importTmdbToServer() {
+    // First attempt: call public import endpoint (no auth) if server has TMDB key
+    try {
+      setMessage('Importing TMDB catalog (public)...');
+      const publicRes = await fetch(`${API}/api/sync-tmdb/save-public`, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ pages: 10 }) });
+      if (publicRes.ok) {
+        const data = await publicRes.json();
+        await fetchFilms();
+        setMessage(`Imported ${data.count || 0} films`);
+        setTimeout(()=>setMessage(''),2000);
+        return;
+      }
+    } catch (e) {
+      // continue to attempt authenticated import below
+    }
+
+    // Fallback: try authenticated import (for setups where public import isn't allowed)
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return setMessage('Login as admin to import TMDB catalog');
+      setMessage('Importing TMDB catalog (auth)...');
+      const res = await fetch(`${API}/api/sync-tmdb/save`, { method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ pages: 10 }) });
+      if (!res.ok) {
+        const txt = await res.text(); throw new Error(txt || 'Import failed');
+      }
+      const data = await res.json();
+      await fetchFilms();
+      setMessage(`Imported ${data.count || 0} films`);
+      setTimeout(()=>setMessage(''),2000);
+    } catch (err) {
+      setMessage('Import failed: ' + String(err.message || err));
+      setTimeout(()=>setMessage(''),2500);
+    }
+  }
+
   async function addFromTmdb(m, save = true) {
     try {
       const idStr = String(m.id);
+      // If the film exists in deleted storage, restore it
       if (deletedIds.has(idStr)) {
-        if (save) {
-          const res = await fetch(`${API}/api/films/${idStr}/restore`, { method: 'POST' });
-          if (!res.ok) {
-            const text = await res.text();
-            throw new Error(text || 'Restore failed');
-          }
-          await fetchDeletedFilms();
-          await fetchPopular(tmdbPage);
-          setMessage('Restored'); setTimeout(()=>setMessage(''),1500);
-        } else {
-          setDeletedFilms(prev => prev.filter(x => String(x._id || x.id) !== idStr));
-          setMessage('Restored locally'); setTimeout(()=>setMessage(''),1500);
+        const res = await fetch(`${API}/api/films/${idStr}/restore`, { method: 'POST' });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Restore failed');
         }
-        const added = await res.json();
+        await fetchDeletedFilms();
         await fetchFilms();
-        setMessage('Added to server');
-        setTmdbResults(prev => prev.filter(x => String(x.id) !== String(m.id)));
-        setTmdbSuggestions(prev => prev.filter(x => String(x.id) !== String(m.id)));
+        setMessage('Restored from deleted');
+        setTmdbResults(prev => prev.filter(x => String(x.id) !== idStr));
+        setTmdbSuggestions(prev => prev.filter(x => String(x.id) !== idStr));
+        setTimeout(() => setMessage(''), 1500);
+        return;
+      }
+
+      // If already stored, skip
+      if (storedIds.has(idStr)) {
+        setMessage('Film déjà présent');
+        setTimeout(()=>setMessage(''),1500);
+        return;
+      }
+
+      const payload = { _id: String(m.id), id: m.id, title: m.title, overview: m.overview, poster_path: m.poster_path, release_date: m.release_date, vote_average: m.vote_average };
+
+      if (save) {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API}/api/films`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload) });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Add failed');
+        }
+        await fetchFilms();
+        setMessage('Ajouté au serveur');
       } else {
         setFilms(prev => [payload, ...prev]);
-        setTmdbResults(prev => prev.filter(x => String(x.id) !== String(m.id)));
-        setTmdbSuggestions(prev => prev.filter(x => String(x.id) !== String(m.id)));
-        setMessage('Added locally (not saved)');
+        setMessage('Ajouté localement');
       }
+
+      setTmdbResults(prev => prev.filter(x => String(x.id) !== idStr));
+      setTmdbSuggestions(prev => prev.filter(x => String(x.id) !== idStr));
       setTimeout(()=>setMessage(''),2000);
     } catch (err) {
       setMessage('Failed to add: ' + String(err.message || err));
@@ -265,6 +346,12 @@ export default function AdminMovies() {
   const storedIds = new Set((films || []).map(f => String(f._id || f.id)));
   const deletedIds = new Set((deletedFilms || []).map(f => String(f._id || f.id)));
 
+  // Helper: add from catalog (calls addFromTmdb but accepts catalog item)
+  async function addCatalogMovie(m) {
+    await addFromTmdb(m, true);
+    await fetchCatalog();
+  }
+
   async function deleteTmdbMovie(m) {
     try {
       const idStr = String(m.id);
@@ -288,6 +375,12 @@ export default function AdminMovies() {
     if (!tmdbQuery) return true;
     const t = (m.title || '').toLowerCase();
     return t.indexOf((tmdbQuery || '').toLowerCase()) !== -1;
+  });
+
+  const displayedCatalog = (catalog || []).filter(m => {
+    if (!filmSearch) return true;
+    const t = (m.title || '').toLowerCase();
+    return t.indexOf((filmSearch || '').toLowerCase()) !== -1;
   });
 
   return (
@@ -357,7 +450,11 @@ export default function AdminMovies() {
       </div>
 
       {loading ? <div>Loading...</div> : (
-        <table border="1" cellPadding="6">
+        <div>
+          <div style={{ marginBottom: 8 }}>
+            <input placeholder="Search stored films" value={filmSearch} onChange={e => setFilmSearch(e.target.value)} style={{ width: 360 }} />
+          </div>
+          <table border="1" cellPadding="6">
           <thead>
             <tr>
               <th>Title</th>
@@ -367,20 +464,69 @@ export default function AdminMovies() {
             </tr>
           </thead>
           <tbody>
-            {films.map(f => (
+            {(displayedCatalog || []).map(f => (
               <tr key={f._id || f.id}>
-                <td>{f.title}</td>
+                <td>{f.title}{f.added ? ' (added)' : ''}{f.deleted ? ' (deleted)' : ''}</td>
                 <td>{f.release_date}</td>
                 <td>{f.vote_average}</td>
                 <td>
-                  <button onClick={()=>editFilmPrompt(f)}>Edit</button>
-                  <button onClick={()=>removeFilm(f._id || f.id)} style={{ marginLeft:8 }}>Delete</button>
+                  {f.added ? (
+                    <>
+                      <button onClick={()=>editFilmPrompt(f)}>Edit</button>
+                      <button onClick={()=>removeFilm(f._id || f.id)} style={{ marginLeft:8 }}>Delete</button>
+                    </>
+                  ) : (
+                    <button onClick={()=>addCatalogMovie(f)}>Add</button>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
+
+      {/* Deleted films table */}
+      <div style={{ marginTop: 20 }}>
+        <h3>Films supprimés</h3>
+        {deletedFilms.length === 0 ? <div>Aucun film supprimé</div> : (
+          <table border="1" cellPadding="6">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Release</th>
+                <th>Rating</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deletedFilms.map(df => (
+                <tr key={String(df._id || df.id)}>
+                  <td>{df.title}</td>
+                  <td>{df.release_date}</td>
+                  <td>{df.vote_average}</td>
+                  <td>
+                    <button onClick={() => restoreFilm(String(df._id || df.id))}>Restore</button>
+                    <button onClick={async () => {
+                      if (!window.confirm('Delete permanently?')) return;
+                      try {
+                        // remove permanently by reading current storage via API: we'll mark it removed by fetching stored and filtering
+                        const res = await fetch(`${API}/api/films/${String(df._id || df.id)}`, { method: 'DELETE' });
+                        if (!res.ok) throw new Error('Delete failed');
+                        await fetchDeletedFilms();
+                        setMessage('Deleted permanently');
+                        setTimeout(()=>setMessage(''),1500);
+                      } catch (e) {
+                        setMessage('Failed to delete permanently');
+                      }
+                    }} style={{ marginLeft: 8 }}>Delete permanently</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }

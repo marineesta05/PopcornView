@@ -14,7 +14,8 @@ export default function AdminUsers() {
   async function fetchUsers() {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/users`, { credentials: 'include' });
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } });
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
       setUsers(data || []);
@@ -27,7 +28,8 @@ export default function AdminUsers() {
     e && e.preventDefault();
     try {
       const payload = { ...form };
-      const res = await fetch(`${API}/api/users`, { method: 'POST', credentials: 'include', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API}/api/users`, { method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload) });
       if (!res.ok) {
         const text = await res.text(); throw new Error(text || 'Create failed');
       }
@@ -43,7 +45,8 @@ export default function AdminUsers() {
   async function deleteUser(id) {
     if (!window.confirm('Delete user?')) return;
     try {
-      const res = await fetch(`${API}/api/users/${id}`, { method: 'DELETE', credentials: 'include' });
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API}/api/users/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
       if (!res.ok) throw new Error('Delete failed');
       setMessage('Deleted');
       await fetchUsers();
@@ -62,7 +65,8 @@ export default function AdminUsers() {
       const password = window.prompt('New password (leave empty to keep)') || '';
       const payload = { nom, prenom, email, role };
       if (password) payload.password = password;
-      const res = await fetch(`${API}/api/users/${u.id}`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API}/api/users/${u.id}`, { method: 'PUT', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error('Update failed');
       setMessage('Updated');
       await fetchUsers();
@@ -76,7 +80,8 @@ export default function AdminUsers() {
     e && e.preventDefault();
     try {
       const payload = { ...form, role: 'admin' };
-      const res = await fetch(`${API}/api/users`, { method: 'POST', credentials: 'include', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API}/api/users`, { method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload) });
       if (!res.ok) {
         const text = await res.text(); throw new Error(text || 'Create failed');
       }

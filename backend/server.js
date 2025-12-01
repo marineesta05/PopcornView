@@ -263,11 +263,28 @@ app.get('/api/films', async (req, res) => {
   }
 });
 
-app.post('/api/films', async (req, res) => {
+app.post('/api/films', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const payload = req.body;
     if (!payload || (!payload.id && !payload._id)) return res.status(400).json({ error: 'Invalid payload, must include id or _id' });
-    return res.status(405).json({ error: 'Adding arbitrary stored films is not supported. Use restore endpoint.' });
+
+    const idStr = String(payload._id || payload.id);
+    const films = await readStoredFilms();
+
+    const existingIdx = (films || []).findIndex(f => String(f._id) === idStr || String(f.id) === idStr);
+    const item = Object.assign({}, payload);
+    if (!item._id) item._id = idStr;
+    // Ensure deleted flag is removed when adding/restoring
+    if (item.deleted) delete item.deleted;
+
+    if (existingIdx !== -1) {
+      films[existingIdx] = Object.assign({}, films[existingIdx], item);
+    } else {
+      films.unshift(item);
+    }
+
+    await writeStoredFilms(films);
+    res.status(201).json({ ok: true, film: item });
   } catch (err) {
     console.error('post films error', err);
     res.status(500).json({ error: String(err) });
@@ -376,9 +393,41 @@ app.post('/api/sync-tmdb/save', authenticateToken, requireAdmin, async (req, res
     if (!apiKey) return res.status(400).json({ error: 'TMDB API key required' });
     const pagesNeeded = Number(req.body.pages || 10);
     const movies = await fetchAndStoreTMDB(apiKey, { pagesNeeded });
+    // Persist the fetched TMDB movies into the stored films file so they
+    // appear as "added" by default in the admin UI.
+    try {
+      await writeStoredFilms(movies);
+      console.log(`Saved ${movies.length} TMDB movies to storage.`);
+    } catch (writeErr) {
+      console.error('Failed to write TMDB movies to storage:', writeErr && writeErr.message ? writeErr.message : writeErr);
+      return res.status(500).json({ error: 'Failed to save TMDB movies to storage' });
+    }
+
     res.json({ ok: true, count: movies.length });
   } catch (err) {
     console.error('sync-tmdb/save error', err && err.message ? err.message : err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Public import endpoint: allows importing TMDB catalog into storage
+// without authentication when the server has a TMDB API key configured.
+app.post('/api/sync-tmdb/save-public', async (req, res) => {
+  try {
+    const apiKey = process.env.TMDB_API_KEY;
+    if (!apiKey) return res.status(400).json({ error: 'TMDB_API_KEY not configured on server' });
+    const pagesNeeded = Number(req.body.pages || 10);
+    const movies = await fetchAndStoreTMDB(apiKey, { pagesNeeded });
+    try {
+      await writeStoredFilms(movies);
+      console.log(`Public import saved ${movies.length} TMDB movies to storage.`);
+    } catch (writeErr) {
+      console.error('Failed to write TMDB movies to storage (public import):', writeErr && writeErr.message ? writeErr.message : writeErr);
+      return res.status(500).json({ error: 'Failed to save TMDB movies to storage' });
+    }
+    res.json({ ok: true, count: movies.length });
+  } catch (err) {
+    console.error('sync-tmdb/save-public error', err && err.message ? err.message : err);
     res.status(500).json({ error: String(err) });
   }
 });
@@ -429,6 +478,43 @@ app.get('/api/tmdb/popular', async (req, res) => {
     res.json({ page: data.page, total_pages: data.total_pages, results });
   } catch (err) {
     console.error('tmdb popular error', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// GET merged catalog (TMDB popular pages merged with stored films)
+app.get('/api/catalog', async (req, res) => {
+  try {
+    const pagesNeeded = Number(req.query.pages || 10);
+    const stored = await readStoredFilms();
+    const storedMap = new Map((stored || []).map(f => [String(f._id || f.id), f]));
+
+    const apiKey = process.env.TMDB_API_KEY;
+    let tmdb = [];
+    if (apiKey) {
+      try {
+        tmdb = await fetchTMDBMovies(apiKey, pagesNeeded);
+      } catch (e) {
+        console.error('Failed to fetch TMDB for catalog:', e && e.message ? e.message : e);
+      }
+    }
+
+    // if no TMDB results, fall back to stored films
+    const source = (Array.isArray(tmdb) && tmdb.length > 0) ? tmdb : (stored || []);
+
+    const merged = (source || []).map(m => {
+      const idStr = String(m._id || m.id);
+      const s = storedMap.get(idStr);
+      const added = !!s && !s.deleted;
+      const deleted = !!s && !!s.deleted;
+      // prefer stored fields when available (title/overview/poster etc)
+      const base = Object.assign({}, m, s || {});
+      return Object.assign({}, base, { added, deleted });
+    }).slice(0, 200);
+
+    res.json({ page: 1, total_pages: 1, results: merged });
+  } catch (err) {
+    console.error('GET /api/catalog error', err);
     res.status(500).json({ error: String(err) });
   }
 });
@@ -511,18 +597,17 @@ initDb().then(() => {
         console.log('Created empty films storage at data/films.json');
       }
 
-      const preloadMode = (process.env.TMDB_PRELOAD_MODE || '').toLowerCase();
       const apiKey = process.env.TMDB_API_KEY;
-      if (apiKey && preloadMode === 'always') {
+      if (apiKey) {
         try {
           const existing = await readStoredFilms();
           if (!Array.isArray(existing) || existing.length === 0) {
-            console.log('TMDB_PRELOAD_MODE=always and storage empty — fetching and writing stored films from TMDB...');
+            console.log('TMDB_API_KEY present and storage empty — fetching and writing stored films from TMDB...');
             const movies = await fetchAndStoreTMDB(apiKey, { pagesNeeded: 10 });
             await writeStoredFilms(movies);
             console.log(`Preloaded ${movies.length} films from TMDB to data/films.json`);
           } else {
-            console.log('TMDB_PRELOAD_MODE=always but storage already contains data — skipping preload to preserve deletions.');
+            console.log('Storage already contains films — skipping preload to preserve deletions.');
           }
         } catch (e) {
           console.error('Failed to preload TMDB catalog on startup:', e && e.message ? e.message : e);

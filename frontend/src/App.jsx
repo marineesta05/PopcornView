@@ -5,6 +5,7 @@ import Login from './pages/auth/login';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Home from './pages/home';
 import AdminUsers from './AdminUsers';
+import AdminMovies from './AdminMovies';
 import AddReview from './pages/movieReview';
 import MovieDetail from './pages/movieDetail';
 
@@ -17,7 +18,8 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/login" element={<Login />} />
           <Route path="/home" element={<Home />} />
-          <Route path="/admin" element={<AdminUsers />} />
+          <Route path="/admin" element={<AdminMovies />} />
+          <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/movie/:movieId/review" element={<AddReview />} />
           <Route path="/movie/:id" element={<MovieDetail />} />
         </Routes>

@@ -25,6 +25,8 @@ const Home = () => {
     const [tmdbTotalPages, setTmdbTotalPages] = useState(1);
     const [tmdbLoading, setTmdbLoading] = useState(false);
     const [apiConnectionError, setApiConnectionError] = useState(false);
+    const [catalogPages, setCatalogPages] = useState(1);
+    const [loadingMore, setLoadingMore] = useState(false);
     
     // États pour la gestion des utilisateurs
     const [userForm, setUserForm] = useState({
@@ -73,13 +75,13 @@ const Home = () => {
     
     useEffect(() => {
         if (!loading && token) {
-            console.log("🔄 Chargement des films...");
-            fetchMovies();
-            if (isAdmin) {
-                fetchUsers();
+                console.log("🔄 Chargement des films...");
+                fetchMovies(catalogPages);
+                if (isAdmin) {
+                    fetchUsers();
+                }
             }
-        }
-    }, [loading, token, isAdmin]);
+    }, [loading, token, isAdmin, catalogPages]);
 
     // Fonction pour vérifier la connexion à l'API
     const checkApiConnection = async () => {
@@ -95,31 +97,56 @@ const Home = () => {
         }
     };
 
-    const fetchMovies = async () => {
+    const fetchMovies = async (pages = catalogPages, append = false) => {
         if (!token) {
             console.log("❌ Aucun token disponible pour fetchMovies");
             return;
         }
 
+        if (append) setLoadingMore(true);
         try {
-            console.log("🔄 Fetch films avec token:", token);
-            
-            const response = await axios.get(`${FILMS_API}/films`, {
+            console.log("🔄 Fetch catalog avec token:", token);
+            // Prefer catalog (TMDB merged) so imported TMDB films appear on home
+            const response = await axios.get(`${FILMS_API}/catalog?pages=${pages}`, {
                 timeout: 10000,
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 }
             });
-            
-            console.log("✅ Films récupérés:", response.data.length, "films");
-            setMovies(response.data || []);
+
+            const results = response.data && response.data.results ? response.data.results : [];
+            // Show TMDB results directly on home: treat them as "added" by default
+            const prepared = (results || []).map(f => Object.assign({}, f, { added: true }));
+            const visible = prepared.filter(f => !f.deleted);
+            console.log("✅ Catalog récupéré:", results.length, "films (", visible.length, "visible)");
+            if (append) {
+                setMovies(prev => {
+                    const merged = [...(prev || []), ...(visible || [])];
+                    const dedup = Array.from(new Map(merged.map(m => [m.id || m._id, m])).values());
+                    return dedup;
+                });
+            } else {
+                setMovies(visible || []);
+            }
             setApiConnectionError(false);
-            
         } catch (error) {
-            console.error("❌ Erreur fetchMovies:", error);
+            if (append) setLoadingMore(false);
+            console.error("❌ Erreur fetchMovies (catalog):", error);
+            // Fallback: try to fetch stored films directly
+            try {
+                const resp2 = await axios.get(`${FILMS_API}/films`, {
+                    timeout: 10000,
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                setMovies(resp2.data || []);
+                setApiConnectionError(false);
+                return;
+            } catch (err2) {
+                console.error('Fallback fetch stored films failed', err2);
+            }
+
             console.error("Détails:", error.response?.data);
-            
             if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
                 setMessage(`❌ Impossible de se connecter à l'API Films (${FILMS_API}). Vérifiez que le serveur backend est démarré.`);
                 setApiConnectionError(true);
@@ -134,8 +161,9 @@ const Home = () => {
             } else {
                 setMessage('Erreur lors du chargement des films: ' + (error.response?.data?.error || error.message));
             }
-            
             setTimeout(() => setMessage(''), 5000);
+        } finally {
+            if (append) setLoadingMore(false);
         }
     };
 
@@ -928,7 +956,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Liste des films */}
+            {}
             <h2>📚 Ma Collection ({movies.length})</h2>
             <ul style={{ 
                 listStyle: 'none', 
@@ -1112,6 +1140,28 @@ const Home = () => {
                     </p>
                 )}
             </ul>
+            {/* Charger plus */}
+            <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                <button
+                    onClick={() => {
+                        const next = catalogPages + 1;
+                        setCatalogPages(next);
+                        // fetch and append next page(s)
+                        fetchMovies(next, true);
+                    }}
+                    disabled={apiConnectionError || loadingMore}
+                    style={{
+                        backgroundColor: apiConnectionError ? '#ccc' : '#1976d2',
+                        color: 'white',
+                        padding: '10px 18px',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: apiConnectionError ? 'not-allowed' : 'pointer'
+                    }}
+                >
+                    {loadingMore ? 'Chargement...' : '🔽 Charger plus de films'}
+                </button>
+            </div>
         </div>
     );
 };
