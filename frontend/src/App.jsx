@@ -9,6 +9,7 @@ import AdminMovies from './AdminMovies';
 import AddReview from './pages/movieReview';
 import MovieDetail from './pages/movieDetail';
 import Legal from './pages/legal';
+import Profile from './pages/profile';
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
           <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/movie/:movieId/review" element={<AddReview />} />
           <Route path="/movie/:id" element={<MovieDetail />} />
+          <Route path="/profile" element={<Profile />} />
           <Route path="/legal" element={<Legal />} />
         </Routes>
         <div style={{ marginTop: 24 }}>

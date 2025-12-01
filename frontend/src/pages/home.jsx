@@ -112,10 +112,23 @@ const Home = () => {
                 const movieId = r.movie_id;
                 let title = '';
                 try {
-                    const mres = await axios.get(`${FILMS_API}/movies/${movieId}`, { withCredentials: true, timeout: 8000 });
+                    const mres = await axios.get(`${FILMS_API}/films/${movieId}`, { withCredentials: true, timeout: 8000 });
                     title = mres.data && (mres.data.title || mres.data.name) ? (mres.data.title || mres.data.name) : '';
                 } catch (e) {
                 }
+
+                if (!title) {
+                    try {
+                        const local = (movies || []).find(m => String(m.id) === String(movieId) || String(m._id) === String(movieId));
+                        if (local && (local.title || local.name)) {
+                            title = local.title || local.name || '';
+                        }
+                    } catch (e) {
+                    }
+                }
+
+                if (!title) console.warn('Comment fetch: title not found for movie id', movieId);
+
                 return {
                     id: r.id,
                     movie_id: r.movie_id,
@@ -509,7 +522,6 @@ const Home = () => {
         try {
             await axios.post(`${FILMS_API}/auth/logout`, {}, { withCredentials: true });
         } catch (e) {
-            // ignore
         }
         navigate('/login', { replace: true });
     };
@@ -524,7 +536,7 @@ const Home = () => {
 
     return (
         <div style={{ padding: '20px' }}>
-            {/* Header */}
+            {}
             <div style={{ 
                 display: 'flex', 
                 justifyContent: 'space-between', 
@@ -634,23 +646,38 @@ const Home = () => {
                         </>
                     )}
                     
-                    <button 
-                        onClick={handleLogout}
-                        style={{
-                            backgroundColor: "#d32f2f",
-                            color: "white",
-                            padding: "8px 16px",
-                            border: "none",
-                            borderRadius: "4px",
-                            cursor: "pointer"
-                        }}
-                    >
-                        🚪 Déconnexion
-                    </button>
+                    <>
+                        <button
+                            onClick={() => navigate('/profile')}
+                            style={{
+                                backgroundColor: '#455a64',
+                                color: 'white',
+                                padding: '8px 16px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            👤 Mon profil
+                        </button>
+                        <button 
+                            onClick={handleLogout}
+                            style={{
+                                backgroundColor: "#d32f2f",
+                                color: "white",
+                                padding: "8px 16px",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: "pointer"
+                            }}
+                        >
+                            🚪 Déconnexion
+                        </button>
+                    </>
                 </div>
             </div>
 
-            {/* Alert si API non accessible */}
+            { }
             {apiConnectionError && (
                 <div style={{
                     backgroundColor: '#ffebee',
@@ -686,7 +713,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Recherche utilisateur (visible pour les users) */}
+            {}
             {!isAdmin && (
                 <div style={{
                     border: '2px solid #e0e0e0',
@@ -738,7 +765,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Panel Gestion des Utilisateurs pour les admins */}
+            {}
             {isAdmin && showUsersPanel && (
                 <div style={{
                     border: '2px solid #9c27b0',
@@ -749,7 +776,7 @@ const Home = () => {
                 }}>
                     <h2 style={{ marginTop: 0, color: '#7b1fa2' }}>👥 Gestion des Utilisateurs</h2>
                     
-                    {/* Formulaire de création d'utilisateur */}
+                    {}
                     <form onSubmit={createUser} style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
@@ -823,7 +850,7 @@ const Home = () => {
                         </div>
                     </form>
 
-                    {/* Liste des utilisateurs */}
+                    {}
                     <div style={{ overflowX: 'auto' }}>
                         <table style={{ 
                             width: '100%', 
@@ -897,7 +924,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Panel Films Supprimés (admin) */}
+            {}
             {isAdmin && showDeletedPanel && (
                 <div style={{
                     border: '2px solid #607d8b',
@@ -942,7 +969,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Panel Commentaires (admin) */}
+            {}
             {isAdmin && showCommentsPanel && (
                 <div style={{
                     border: '2px solid #00796b',
@@ -973,7 +1000,14 @@ const Home = () => {
                                     ) : comments.map(c => (
                                         <tr key={c.id} style={{ borderBottom: '1px solid #eee' }}>
                                             <td style={{ padding: '12px' }}>{c.id}</td>
-                                            <td style={{ padding: '12px' }}>{c.title || `#${c.movie_id}`}</td>
+                                            <td style={{ padding: '12px' }}>
+                                                {c.title ? (
+                                                    <span>
+                                                        <strong>{c.title}</strong>{' '}
+                                                        <span style={{ color: '#666' }}>({`#${c.movie_id}`})</span>
+                                                    </span>
+                                                ) : `#${c.movie_id}`}
+                                            </td>
                                             <td style={{ padding: '12px' }}>{c.user_email}</td>
                                             <td style={{ padding: '12px' }}>{c.rating || '-'}</td>
                                             <td style={{ padding: '12px' }}>{c.comment}</td>
@@ -991,7 +1025,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Panel TMDB pour les admins */}
+            {}
             {isAdmin && showTmdbPanel && (
                 <div style={{
                     border: '2px solid #2196f3',

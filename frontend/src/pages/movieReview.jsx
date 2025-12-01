@@ -8,6 +8,8 @@ const AddReview = () => {
     const { movieId } = useParams();
     const [token, setToken] = useState(null);
 
+    const MAX_COMMENT = 500;
+
     const [formData, setFormData] = useState({
         rating: "",
         comment: "",
@@ -20,7 +22,13 @@ const AddReview = () => {
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData({ ...formData, [name]: value });
+        if (name === 'comment') {
+            const v = value && value.length > MAX_COMMENT ? value.slice(0, MAX_COMMENT) : value;
+            setFormData({ ...formData, [name]: v });
+            if (error && v.trim().length <= MAX_COMMENT) setError("");
+        } else {
+            setFormData({ ...formData, [name]: value });
+        }
     };
 
     const handleReconnect = () => {
@@ -43,6 +51,12 @@ const AddReview = () => {
 
         if (!formData.comment.trim()) {
             setError("Le commentaire est requis");
+            setLoading(false);
+            return;
+        }
+
+        if (formData.comment.trim().length > MAX_COMMENT) {
+            setError(`Le commentaire ne doit pas dépasser ${MAX_COMMENT} caractères`);
             setLoading(false);
             return;
         }
@@ -197,6 +211,7 @@ const AddReview = () => {
                         name="comment"
                         rows="5"
                         value={formData.comment}
+                        maxLength={MAX_COMMENT}
                         onChange={handleChange}
                         required
                         disabled={loading}
@@ -210,6 +225,12 @@ const AddReview = () => {
                             fontSize: "16px"
                         }}
                     />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                        <small style={{ color: formData.comment.length > MAX_COMMENT ? 'red' : '#666' }}>{formData.comment.length}/{MAX_COMMENT}</small>
+                        {formData.comment.length > MAX_COMMENT && (
+                            <small style={{ color: 'red' }}>Trop long ({formData.comment.length - MAX_COMMENT} caractères en trop)</small>
+                        )}
+                    </div>
                 </div>
 
                 <div style={{ display: "flex", gap: "10px" }}>
