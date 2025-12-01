@@ -14,12 +14,8 @@ export default function MovieDetail() {
     const [loadingReviews, setLoadingReviews] = useState(false);
     const [error, setError] = useState(null);
 
-    // Récupérer le token du localStorage
-    const getAuthToken = () => {
-        return localStorage.getItem('token');
-    };
+    const fetchOptions = () => ({ credentials: 'include' });
 
-    // Fetch movie details
     useEffect(() => {
         if (!id) return;
         
@@ -28,12 +24,7 @@ export default function MovieDetail() {
             setError(null);
             
             try {
-                const token = getAuthToken();
-                const response = await fetch(`http://localhost:4000/api/movies/${id}`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
+                const response = await fetch(`http://localhost:4000/api/movies/${id}`, fetchOptions());
                 
                 if (!response.ok) {
                     throw new Error("Failed to load movie");
@@ -52,7 +43,6 @@ export default function MovieDetail() {
         fetchMovie();
     }, [id]);
 
-    // Fetch reviews
     useEffect(() => {
         if (!id) return;
         
@@ -60,7 +50,6 @@ export default function MovieDetail() {
         setPage(0);
         setHasMore(true);
         loadReviews(0);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     async function loadReviews(pageToLoad) {
@@ -70,12 +59,7 @@ export default function MovieDetail() {
         setError(null);
         
         try {
-            const token = getAuthToken();
-            const response = await fetch(`http://localhost:4000/api/movies/${id}/reviews`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+                const response = await fetch(`http://localhost:4000/api/movies/${id}/reviews`, fetchOptions());
             
             if (!response.ok) {
                 throw new Error("Failed to load reviews");
@@ -87,7 +71,6 @@ export default function MovieDetail() {
                 throw new Error("Invalid reviews response");
             }
             
-            // Pagination côté client
             const startIndex = pageToLoad * PAGE_SIZE;
             const paginatedData = data.slice(startIndex, startIndex + PAGE_SIZE);
             
@@ -148,7 +131,7 @@ export default function MovieDetail() {
                         </span>
                     </div>
                     
-                    {/* Bouton pour ajouter un avis */}
+                    {}
                     <div style={{ marginBottom: 16 }}>
                         <button 
                             onClick={handleAddReview}

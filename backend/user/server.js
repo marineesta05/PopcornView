@@ -1,8 +1,10 @@
 const express = require('express');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const helmet = require('helmet');
 
 dotenv.config({ path: '../.env' });
 const db = require('../database.js');
@@ -18,6 +20,7 @@ app.use(cors({
 }));
 
 app.use(express.json());
+app.use(helmet());
 
 // Vérification JWT_SECRET
 if (!process.env.JWT_SECRET) {
@@ -80,6 +83,22 @@ app.post('/register', async (req, res) => {
             { expiresIn: '1h' }
         );
 
+        // set cookie for auth (httpOnly; secure in production)
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 30 * 60 * 1000
+        });
+
+        // set readable CSRF token for double-submit pattern
+        try {
+            const csrf = crypto.randomBytes(24).toString('hex');
+            res.cookie('XSRF-TOKEN', csrf, { httpOnly: false, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' });
+        } catch (e) {
+            console.warn('Failed to set XSRF cookie:', e && e.message ? e.message : e);
+        }
+
         res.status(201).json({ 
             message: 'Inscription réussie',
             token,
@@ -140,6 +159,22 @@ app.post('/login', async (req, res) => {
             process.env.JWT_SECRET,
             { expiresIn: "1h" }
         );
+
+        // set cookie for auth (httpOnly; secure in production)
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 30 * 60 * 1000
+        });
+
+        // set readable CSRF token for double-submit pattern
+        try {
+            const csrf = crypto.randomBytes(24).toString('hex');
+            res.cookie('XSRF-TOKEN', csrf, { httpOnly: false, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' });
+        } catch (e) {
+            console.warn('Failed to set XSRF cookie on login:', e && e.message ? e.message : e);
+        }
 
         console.log('Token généré, envoi de la réponse...');
         

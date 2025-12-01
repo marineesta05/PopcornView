@@ -1,6 +1,7 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
+const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -8,6 +9,7 @@ const mysql = require('mysql2/promise');
 const fs = require('fs');
 const fsp = require('fs').promises;
 const cors = require('cors');
+const helmet = require('helmet');
 
 try {
   if (typeof fetch === 'undefined') global.fetch = require('node-fetch');
@@ -17,6 +19,7 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cookieParser());
+app.use(helmet());
 app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
 app.use(express.json());
 
@@ -39,6 +42,20 @@ async function initDb() {
 function signToken(payload) {
   const secret = process.env.JWT_SECRET || 'replace-me-with-secret';
   return jwt.sign(payload, secret, { expiresIn: '12h' });
+}
+
+function generateCsrfToken() {
+  return crypto.randomBytes(24).toString('hex');
+}
+
+function verifyCsrf(req, res, next) {
+  if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) return next();
+  const cookieToken = req.cookies && req.cookies['XSRF-TOKEN'];
+  const headerToken = req.headers['x-csrf-token'] || req.headers['x-xsrf-token'];
+  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+    return res.status(403).json({ error: 'Invalid CSRF token' });
+  }
+  next();
 }
 
 async function getUserByEmail(email) {
@@ -77,9 +94,17 @@ app.post('/api/auth/register', async (req, res) => {
     if (!email || !password || !nom || !prenom) return res.status(400).json({ error: 'nom, prenom, email and password required' });
     const existing = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
     if (existing && existing[0] && existing[0].length > 0) return res.status(409).json({ error: 'User exists' });
-    const hash = await bcrypt.hash(password, 10);
+    const pass = String(password);
+    const classes = [/[a-z]/, /[A-Z]/, /\d/, /[@$!%*?&^#()\[\]{}<>~`_+=|:;.,\/\\-]/];
+    const matched = classes.reduce((c, rx) => c + (rx.test(pass) ? 1 : 0), 0);
+    if (pass.length < 12 || matched < 3) {
+      return res.status(400).json({ error: 'Password must be at least 12 chars and include at least 3 of: uppercase, lowercase, digits, special characters' });
+    }
+    const hash = await bcrypt.hash(password, 12);
     const [result] = await pool.query('INSERT INTO users (nom, prenom, email, role, password) VALUES (?, ?, ?, ?, ?)', [nom, prenom, email, role || 'user', hash]);
     const user = { id: result.insertId, nom, prenom, email, role: role || 'user' };
+    const csrf = generateCsrfToken();
+    res.cookie('XSRF-TOKEN', csrf, { httpOnly: false, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' });
     res.status(201).json({ ok: true, user });
   } catch (err) {
     console.error('register error', err);
@@ -96,7 +121,14 @@ app.post('/api/auth/login', async (req, res) => {
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
     const token = signToken({ id: user.id, role: user.role });
-    res.cookie('token', token, { httpOnly: true, sameSite: 'lax' });
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 30 * 60 * 1000 
+    });
+    const csrf = generateCsrfToken();
+    res.cookie('XSRF-TOKEN', csrf, { httpOnly: false, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' });
     res.json({ ok: true, id: user.id, role: user.role });
   } catch (err) {
     console.error('login error', err);
@@ -106,6 +138,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie('token');
+  res.clearCookie('XSRF-TOKEN');
   res.json({ ok: true });
 });
 
@@ -113,7 +146,7 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
   res.json({ ok: true, user: req.user });
 });
 
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT id, nom, prenom, email, role FROM users ORDER BY id DESC');
     res.json(rows || []);
@@ -123,7 +156,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     const { nom, prenom, email, password, role } = req.body || {};
     if (!nom || !prenom || !email || !password) return res.status(400).json({ error: 'nom, prenom, email and password required' });
@@ -138,9 +171,12 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id', authenticateToken, verifyCsrf, async (req, res) => {
   try {
     const id = req.params.id;
+    if (!req.user || (req.user.id !== Number(id) && req.user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const { nom, prenom, email, password, role } = req.body || {};
     const fields = [];
     const values = [];
@@ -165,7 +201,7 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     const id = req.params.id;
     await pool.query('DELETE FROM users WHERE id = ?', [id]);
@@ -263,7 +299,7 @@ app.get('/api/films', async (req, res) => {
   }
 });
 
-app.post('/api/films', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/films', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     const payload = req.body;
     if (!payload || (!payload.id && !payload._id)) return res.status(400).json({ error: 'Invalid payload, must include id or _id' });
@@ -290,7 +326,7 @@ app.post('/api/films', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
-app.put('/api/films/:id', async (req, res) => {
+app.put('/api/films/:id', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     const id = String(req.params.id);
     const payload = req.body;
@@ -306,7 +342,7 @@ app.put('/api/films/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/films/:id', async (req, res) => {
+app.delete('/api/films/:id', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     const id = String(req.params.id);
     const films = await readStoredFilms();
@@ -433,7 +469,7 @@ app.get('/api/films/deleted', async (req, res) => {
   }
 });
 
-app.post('/api/films/:id/restore', async (req, res) => {
+app.post('/api/films/:id/restore', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     const id = String(req.params.id);
     const deleted = await readStoredFilms();
@@ -448,7 +484,7 @@ app.post('/api/films/:id/restore', async (req, res) => {
   }
 });
 
-app.post('/api/sync-tmdb', async (req, res) => {
+app.post('/api/sync-tmdb', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     const apiKey = process.env.TMDB_API_KEY || req.body.apiKey;
     if (!apiKey) return res.status(400).json({ error: 'TMDB API key required' });
@@ -483,7 +519,7 @@ app.post('/api/sync-tmdb', async (req, res) => {
   }
 });
 
-app.post('/api/sync-tmdb/save', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/sync-tmdb/save', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     const apiKey = process.env.TMDB_API_KEY || req.body.apiKey;
     if (!apiKey) return res.status(400).json({ error: 'TMDB API key required' });
@@ -504,7 +540,7 @@ app.post('/api/sync-tmdb/save', authenticateToken, requireAdmin, async (req, res
   }
 });
 
-app.post('/api/sync-tmdb/save-public', async (req, res) => {
+app.post('/api/sync-tmdb/save-public', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     const apiKey = process.env.TMDB_API_KEY;
     if (!apiKey) return res.status(400).json({ error: 'TMDB_API_KEY not configured on server' });
@@ -524,7 +560,7 @@ app.post('/api/sync-tmdb/save-public', async (req, res) => {
   }
 });
 
-app.post('/api/films/mark-deleted', async (req, res) => {
+app.post('/api/films/mark-deleted', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     const payload = req.body;
     if (!payload || (!payload.id && !payload._id)) return res.status(400).json({ error: 'Invalid payload, must include id or _id' });
@@ -547,7 +583,7 @@ app.post('/api/films/mark-deleted', async (req, res) => {
   }
 });
 
-app.post('/api/films/clear-deleted-flags', async (req, res) => {
+app.post('/api/films/clear-deleted-flags', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
     await removeDeletedFlagsFromStored();
     res.json({ ok: true });

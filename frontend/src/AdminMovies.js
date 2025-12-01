@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getCsrfToken } from './utils/csrf';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:4000';
 const FRONTEND_TMDB_KEY = process.env.REACT_APP_TMDB_API_KEY || '';
 
 export default function AdminMovies() {
+  const navigate = useNavigate();
   const [films, setFilms] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -21,26 +24,34 @@ export default function AdminMovies() {
   const [filmSearch, setFilmSearch] = useState('');
   const [attemptedImport, setAttemptedImport] = useState(false);
 
-  useEffect(() => { fetchFilms(); fetchDeletedFilms(); fetchCatalog(); }, []);
+  useEffect(() => { 
+    (async function check() {
+      try {
+        const me = await fetch(`${API}/api/auth/me`, { credentials: 'include' });
+        if (!me.ok) return navigate('/login');
+        const data = await me.json();
+        if (!data.user || data.user.role !== 'admin') return navigate('/login');
+      } catch (e) {
+        return navigate('/login');
+      }
+      fetchFilms(); fetchDeletedFilms(); fetchCatalog();
+    })();
+  }, []);
 
   async function fetchCatalog() {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-      const res = await fetch(`${API}/api/catalog?pages=10`, { headers });
+      const res = await fetch(`${API}/api/catalog?pages=10`, { credentials: 'include' });
       if (!res.ok) {
         const txt = await res.text(); throw new Error(txt || `HTTP ${res.status}`);
       }
       const data = await res.json();
       setCatalog(data.results || []);
     } catch (err) {
-      // fallback: if catalog fetch fails, leave catalog empty (UI still shows TMDB area)
       setMessage('Failed to load catalog: ' + String(err.message || err));
     } finally { setLoading(false); }
   }
 
-  // If stored films are empty after initial load, attempt to import TMDB catalog
   useEffect(() => {
     if (attemptedImport) return;
     if (loading) return;
@@ -98,7 +109,7 @@ export default function AdminMovies() {
   async function fetchFilms() {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/films`);
+      const res = await fetch(`${API}/api/films`, { credentials: 'include' });
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || `HTTP ${res.status}`);
@@ -112,7 +123,7 @@ export default function AdminMovies() {
 
   async function fetchDeletedFilms() {
     try {
-      const res = await fetch(`${API}/api/films/deleted`);
+      const res = await fetch(`${API}/api/films/deleted`, { credentials: 'include' });
       if (!res.ok) return setDeletedFilms([]);
       const data = await res.json();
       setDeletedFilms(data || []);
@@ -220,7 +231,6 @@ export default function AdminMovies() {
   }
 
   async function importTmdbToServer() {
-    // First attempt: call public import endpoint (no auth) if server has TMDB key
     try {
       setMessage('Importing TMDB catalog (public)...');
       const publicRes = await fetch(`${API}/api/sync-tmdb/save-public`, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ pages: 10 }) });
@@ -232,15 +242,15 @@ export default function AdminMovies() {
         return;
       }
     } catch (e) {
-      // continue to attempt authenticated import below
     }
 
-    // Fallback: try authenticated import (for setups where public import isn't allowed)
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return setMessage('Login as admin to import TMDB catalog');
+      const csrf = getCsrfToken();
       setMessage('Importing TMDB catalog (auth)...');
-      const res = await fetch(`${API}/api/sync-tmdb/save`, { method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ pages: 10 }) });
+      setMessage('Importing TMDB catalog (auth)...');
+      const headers = { 'Content-Type':'application/json' };
+      if (csrf) headers['x-csrf-token'] = csrf;
+      const res = await fetch(`${API}/api/sync-tmdb/save`, { method: 'POST', credentials: 'include', headers, body: JSON.stringify({ pages: 10 }) });
       if (!res.ok) {
         const txt = await res.text(); throw new Error(txt || 'Import failed');
       }
@@ -257,7 +267,6 @@ export default function AdminMovies() {
   async function addFromTmdb(m, save = true) {
     try {
       const idStr = String(m.id);
-      // If the film exists in deleted storage, restore it
       if (deletedIds.has(idStr)) {
         const res = await fetch(`${API}/api/films/${idStr}/restore`, { method: 'POST' });
         if (!res.ok) {
@@ -273,7 +282,6 @@ export default function AdminMovies() {
         return;
       }
 
-      // If already stored, skip
       if (storedIds.has(idStr)) {
         setMessage('Film déjà présent');
         setTimeout(()=>setMessage(''),1500);
@@ -283,8 +291,9 @@ export default function AdminMovies() {
       const payload = { _id: String(m.id), id: m.id, title: m.title, overview: m.overview, poster_path: m.poster_path, release_date: m.release_date, vote_average: m.vote_average };
 
       if (save) {
-        const token = localStorage.getItem('token');
-        const res = await fetch(`${API}/api/films`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload) });
+        const headers = { 'Content-Type': 'application/json' };
+        const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+        const res = await fetch(`${API}/api/films`, { method: 'POST', credentials: 'include', headers, body: JSON.stringify(payload) });
         if (!res.ok) {
           const text = await res.text();
           throw new Error(text || 'Add failed');
@@ -346,7 +355,6 @@ export default function AdminMovies() {
   const storedIds = new Set((films || []).map(f => String(f._id || f.id)));
   const deletedIds = new Set((deletedFilms || []).map(f => String(f._id || f.id)));
 
-  // Helper: add from catalog (calls addFromTmdb but accepts catalog item)
   async function addCatalogMovie(m) {
     await addFromTmdb(m, true);
     await fetchCatalog();
@@ -486,7 +494,7 @@ export default function AdminMovies() {
         </div>
       )}
 
-      {/* Deleted films table */}
+      {}
       <div style={{ marginTop: 20 }}>
         <h3>Films supprimés</h3>
         {deletedFilms.length === 0 ? <div>Aucun film supprimé</div> : (
@@ -510,7 +518,6 @@ export default function AdminMovies() {
                     <button onClick={async () => {
                       if (!window.confirm('Delete permanently?')) return;
                       try {
-                        // remove permanently by reading current storage via API: we'll mark it removed by fetching stored and filtering
                         const res = await fetch(`${API}/api/films/${String(df._id || df.id)}`, { method: 'DELETE' });
                         if (!res.ok) throw new Error('Delete failed');
                         await fetchDeletedFilms();

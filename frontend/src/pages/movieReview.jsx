@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate, useParams } from "react-router-dom";
+import { getCsrfToken } from '../utils/csrf';
 
 const AddReview = () => {
     const navigate = useNavigate();
     const { movieId } = useParams();
-    const [token, setToken] = useState(localStorage.getItem("token"));
+    const [token, setToken] = useState(null);
 
     const [formData, setFormData] = useState({
         rating: "",
@@ -16,25 +17,6 @@ const AddReview = () => {
     const [success, setSuccess] = useState("");
     const [loading, setLoading] = useState(false);
 
-    // Vérifier la validité du token au chargement
-    useEffect(() => {
-        checkTokenValidity();
-    }, []);
-
-    const checkTokenValidity = () => {
-        if (!token) {
-            setError("Vous devez être connecté pour ajouter un avis");
-            return false;
-        }
-
-        // Vérification basique du format du token
-        if (token.length < 50) { // Un token JWT valide est généralement long
-            setError("Token invalide. Veuillez vous reconnecter.");
-            return false;
-        }
-
-        return true;
-    };
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -42,7 +24,6 @@ const AddReview = () => {
     };
 
     const handleReconnect = () => {
-        // Rediriger vers la page de connexion
         navigate("/login");
     };
 
@@ -51,13 +32,9 @@ const AddReview = () => {
         setError("");
         setSuccess("");
 
-        if (!checkTokenValidity()) {
-            return;
-        }
 
         setLoading(true);
 
-        // Validation des données
         if (!formData.rating || formData.rating < 1 || formData.rating > 5) {
             setError("La note doit être entre 1 et 5");
             setLoading(false);
@@ -71,18 +48,18 @@ const AddReview = () => {
         }
 
         try {
+            const headers = { 'Content-Type': 'application/json' };
+            const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
             const response = await axios.post(
-                "http://localhost:3003/reviews", 
+                "http://localhost:3003/reviews",
                 {
                     movie_id: parseInt(movieId),
                     rating: parseInt(formData.rating),
                     comment: formData.comment.trim()
                 },
                 {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        "Content-Type": "application/json"
-                    }
+                    withCredentials: true,
+                    headers
                 }
             );
             
@@ -97,7 +74,6 @@ const AddReview = () => {
             
             if (err.response?.status === 401 || err.response?.data?.message === "Token invalide") {
                 setError("Session expirée. Veuillez vous reconnecter.");
-                // Supprimer le token invalide
                 localStorage.removeItem("token");
                 setToken(null);
             } else if (err.response?.data?.message) {
@@ -110,7 +86,6 @@ const AddReview = () => {
         }
     };
 
-    // Si pas de token ou token invalide
     if (!token) {
         return (
             <div style={{ 

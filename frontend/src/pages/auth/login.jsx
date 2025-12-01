@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+
+const FILMS_API = 'http://localhost:4000/api';
 
 const Login = () => {
     const navigate = useNavigate();
@@ -15,20 +18,29 @@ const Login = () => {
         try {
             console.log('Tentative de connexion...'); // Debug
             
-            const response = await fetch('http://localhost:3001/login', {
+            const response = await fetch(`${FILMS_API}/auth/login`, {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password }),
             });
 
             const data = await response.json();
-            console.log('Réponse serveur:', data); // Debug
 
             if (response.ok) {
-                localStorage.setItem("token", data.token);
-                localStorage.setItem("user", JSON.stringify(data.user)); // Sauvegarder aussi l'utilisateur
+                // token is stored in HttpOnly cookie by the server; verify session then navigate
                 setMessage('Connexion réussie!');
-                setTimeout(() => navigate('/home'), 1000);
+                try {
+                    const me = await axios.get(`${FILMS_API}/auth/me`, { withCredentials: true, timeout: 5000 });
+                    if (me && me.data && me.data.user) {
+                        setTimeout(() => navigate('/home'), 300);
+                    } else {
+                        setMessage('Connexion établie mais impossible de récupérer la session');
+                    }
+                } catch (e) {
+                    console.error('Failed to verify session after login', e);
+                    setMessage('Connexion réussie mais vérification de session échouée');
+                }
             } else {
                 setMessage(data.message || 'Échec de la connexion');
             }
