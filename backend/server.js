@@ -274,7 +274,6 @@ app.post('/api/films', authenticateToken, requireAdmin, async (req, res) => {
     const existingIdx = (films || []).findIndex(f => String(f._id) === idStr || String(f.id) === idStr);
     const item = Object.assign({}, payload);
     if (!item._id) item._id = idStr;
-    // Ensure deleted flag is removed when adding/restoring
     if (item.deleted) delete item.deleted;
 
     if (existingIdx !== -1) {
@@ -313,7 +312,6 @@ app.delete('/api/films/:id', async (req, res) => {
     const films = await readStoredFilms();
     const idx = films.findIndex(f => String(f._id) === id || String(f.id) === id);
     if (idx === -1) {
-      // If the film is not present in stored films, try to fetch details from TMDB
       const item = { _id: id, id: isNaN(Number(id)) ? id : Number(id), deleted: true };
       try {
         const apiKey = process.env.TMDB_API_KEY;
@@ -336,7 +334,6 @@ app.delete('/api/films/:id', async (req, res) => {
       }
       films.unshift(item);
     } else {
-      // Mark deleted and enrich metadata if missing
       films[idx] = Object.assign({}, films[idx], { deleted: true });
       const existing = films[idx];
       const needsTitle = !existing.title || existing.title === '';
@@ -378,7 +375,6 @@ app.get('/api/films/deleted', async (req, res) => {
     const films = await readStoredFilms();
     const deleted = (films || []).filter(f => f && f.deleted);
 
-    // Enrich deleted entries that lack metadata by fetching TMDB details (if configured)
     const apiKey = process.env.TMDB_API_KEY;
     let changed = false;
     if (apiKey && Array.isArray(deleted) && deleted.length > 0) {
@@ -396,7 +392,6 @@ app.get('/api/films/deleted', async (req, res) => {
             if (resp && resp.ok) {
               const m = await resp.json();
               if (m) {
-                // Update the object in the main films array as well
                 const idx = films.findIndex(f => String(f._id) === id || String(f.id) === id);
                 const updated = Object.assign({}, d, {
                   title: m.title || d.title,
@@ -408,7 +403,6 @@ app.get('/api/films/deleted', async (req, res) => {
                 if (idx !== -1) {
                   films[idx] = updated;
                 } else {
-                  // ensure deleted entry itself gets enriched
                   const pos = films.indexOf(d);
                   if (pos !== -1) films[pos] = updated;
                 }
@@ -495,8 +489,6 @@ app.post('/api/sync-tmdb/save', authenticateToken, requireAdmin, async (req, res
     if (!apiKey) return res.status(400).json({ error: 'TMDB API key required' });
     const pagesNeeded = Number(req.body.pages || 10);
     const movies = await fetchAndStoreTMDB(apiKey, { pagesNeeded });
-    // Persist the fetched TMDB movies into the stored films file so they
-    // appear as "added" by default in the admin UI.
     try {
       await writeStoredFilms(movies);
       console.log(`Saved ${movies.length} TMDB movies to storage.`);
@@ -512,8 +504,6 @@ app.post('/api/sync-tmdb/save', authenticateToken, requireAdmin, async (req, res
   }
 });
 
-// Public import endpoint: allows importing TMDB catalog into storage
-// without authentication when the server has a TMDB API key configured.
 app.post('/api/sync-tmdb/save-public', async (req, res) => {
   try {
     const apiKey = process.env.TMDB_API_KEY;
@@ -584,7 +574,6 @@ app.get('/api/tmdb/popular', async (req, res) => {
   }
 });
 
-// GET merged catalog (TMDB popular pages merged with stored films)
 app.get('/api/catalog', async (req, res) => {
   try {
     const pagesNeeded = Number(req.query.pages || 10);
@@ -601,7 +590,6 @@ app.get('/api/catalog', async (req, res) => {
       }
     }
 
-    // if no TMDB results, fall back to stored films
     const source = (Array.isArray(tmdb) && tmdb.length > 0) ? tmdb : (stored || []);
 
     const merged = (source || []).map(m => {
@@ -609,7 +597,6 @@ app.get('/api/catalog', async (req, res) => {
       const s = storedMap.get(idStr);
       const added = !!s && !s.deleted;
       const deleted = !!s && !!s.deleted;
-      // prefer stored fields when available (title/overview/poster etc)
       const base = Object.assign({}, m, s || {});
       return Object.assign({}, base, { added, deleted });
     }).slice(0, 200);

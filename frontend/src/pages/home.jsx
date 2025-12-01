@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
 
-// URL de l'API films
 const FILMS_API = 'http://localhost:4000/api';
 
 const Home = () => {
@@ -15,7 +14,6 @@ const Home = () => {
     const [message, setMessage] = useState('');
     const [token, setToken] = useState(localStorage.getItem("token"));
     
-    // États pour TMDB (admin uniquement)
     const [showTmdbPanel, setShowTmdbPanel] = useState(false);
     const [showUsersPanel, setShowUsersPanel] = useState(false);
     const [tmdbMode, setTmdbMode] = useState('search');
@@ -27,12 +25,18 @@ const Home = () => {
     const [apiConnectionError, setApiConnectionError] = useState(false);
     const [catalogPages, setCatalogPages] = useState(1);
     const [loadingMore, setLoadingMore] = useState(false);
-    // Deleted films panel
     const [showDeletedPanel, setShowDeletedPanel] = useState(false);
     const [deletedFilms, setDeletedFilms] = useState([]);
     const [deletedLoading, setDeletedLoading] = useState(false);
+    const [showCommentsPanel, setShowCommentsPanel] = useState(false);
+    const [comments, setComments] = useState([]);
+    const [commentsLoading, setCommentsLoading] = useState(false);
+    const [userQuery, setUserQuery] = useState('');
+    const [userResults, setUserResults] = useState([]);
+    const [userLoading, setUserLoading] = useState(false);
+    const [userPage, setUserPage] = useState(1);
+    const [userTotalPages, setUserTotalPages] = useState(1);
     
-    // États pour la gestion des utilisateurs
     const [userForm, setUserForm] = useState({
         nom: '',
         prenom: '',
@@ -41,7 +45,6 @@ const Home = () => {
         role: 'user'
     });
     
-    // Vérification de l'authentification
     useEffect(() => {
         const checkAuth = () => {
             const currentToken = localStorage.getItem("token");
@@ -87,7 +90,6 @@ const Home = () => {
             }
     }, [loading, token, isAdmin, catalogPages]);
 
-    // Fetch deleted films (admin)
     const fetchDeletedFilms = async () => {
         if (!token) return;
         setDeletedLoading(true);
@@ -124,7 +126,65 @@ const Home = () => {
         }
     };
 
-    // Fonction pour vérifier la connexion à l'API
+    const fetchComments = async () => {
+        if (!token) return;
+        setCommentsLoading(true);
+        try {
+            const res = await axios.get('http://localhost:3003/reviews', {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 10000
+            });
+            const rows = res.data || [];
+
+            const enriched = await Promise.all(rows.map(async r => {
+                const movieId = r.movie_id;
+                let title = '';
+                try {
+                    const mres = await axios.get(`${FILMS_API}/movies/${movieId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` },
+                        timeout: 8000
+                    });
+                    title = mres.data && (mres.data.title || mres.data.name) ? (mres.data.title || mres.data.name) : '';
+                } catch (e) {
+                }
+                return {
+                    id: r.id,
+                    movie_id: r.movie_id,
+                    title,
+                    user_email: r.email || r.user_email || r.user || '',
+                    rating: r.rating || r.note || r.score || null,
+                    comment: r.comment || r.commentaire || ''
+                };
+            }));
+
+            setComments(enriched);
+        } catch (err) {
+            console.error('Error fetching comments', err);
+            setMessage('Erreur lors du chargement des commentaires');
+            setTimeout(() => setMessage(''), 3000);
+        } finally {
+            setCommentsLoading(false);
+        }
+    };
+
+    const deleteComment = async (id) => {
+        if (!token) return;
+        if (!window.confirm('Supprimer ce commentaire définitivement ?')) return;
+        try {
+            await axios.delete(`http://localhost:3003/reviews/${id}`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 10000
+            });
+            setMessage('✅ Commentaire supprimé');
+            fetchComments();
+            setTimeout(() => setMessage(''), 2000);
+        } catch (err) {
+            console.error('Error deleting comment', err);
+            setMessage('❌ Impossible de supprimer le commentaire');
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
+
     const checkApiConnection = async () => {
         try {
             await axios.get(`${FILMS_API}/health`, { timeout: 5000 });
@@ -138,6 +198,53 @@ const Home = () => {
         }
     };
 
+    const searchForUser = async (q, page = 1) => {
+        if (!q) {
+            setUserResults([]);
+            return;
+        }
+        setUserLoading(true);
+        try {
+            const response = await axios.get(`${FILMS_API}/tmdb/search?q=${encodeURIComponent(q)}&page=${page}`, {
+                timeout: 10000,
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            let results = response.data.results || [];
+            try {
+                const delResp = await axios.get(`${FILMS_API}/films/deleted`, {
+                    timeout: 8000,
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const deleted = delResp.data || [];
+                const deletedIds = new Set((deleted || []).map(d => String(d._id || d.id)));
+                results = (results || []).filter(r => !deletedIds.has(String(r.id)));
+            } catch (e) {
+                console.warn('Could not fetch deleted films to filter user results', e && e.message ? e.message : e);
+            }
+            setUserResults(results);
+            setUserPage(response.data.page || 1);
+            setUserTotalPages(response.data.total_pages || 1);
+        } catch (err) {
+            console.error('Error searchForUser', err);
+            setMessage('Erreur lors de la recherche de films');
+            setTimeout(() => setMessage(''), 3000);
+        } finally {
+            setUserLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const q = (userQuery || '').trim();
+        if (!q) {
+            setUserResults([]);
+            setUserPage(1);
+            setUserTotalPages(1);
+            return;
+        }
+        const id = setTimeout(() => searchForUser(q, 1), 300);
+        return () => clearTimeout(id);
+    }, [userQuery]);
+
     const fetchMovies = async (pages = catalogPages, append = false) => {
         if (!token) {
             console.log("❌ Aucun token disponible pour fetchMovies");
@@ -147,7 +254,6 @@ const Home = () => {
         if (append) setLoadingMore(true);
         try {
             console.log("🔄 Fetch catalog avec token:", token);
-            // Prefer catalog (TMDB merged) so imported TMDB films appear on home
             const response = await axios.get(`${FILMS_API}/catalog?pages=${pages}`, {
                 timeout: 10000,
                 headers: {
@@ -157,7 +263,6 @@ const Home = () => {
             });
 
             const results = response.data && response.data.results ? response.data.results : [];
-            // Show TMDB results directly on home: treat them as "added" by default
             const prepared = (results || []).map(f => Object.assign({}, f, { added: true }));
             const visible = prepared.filter(f => !f.deleted);
             console.log("✅ Catalog récupéré:", results.length, "films (", visible.length, "visible)");
@@ -174,7 +279,6 @@ const Home = () => {
         } catch (error) {
             if (append) setLoadingMore(false);
             console.error("❌ Erreur fetchMovies (catalog):", error);
-            // Fallback: try to fetch stored films directly
             try {
                 const resp2 = await axios.get(`${FILMS_API}/films`, {
                     timeout: 10000,
@@ -208,7 +312,6 @@ const Home = () => {
         }
     };
 
-    // Fonctions pour la gestion des utilisateurs (admin seulement)
     const fetchUsers = async () => {
         if (!isAdmin) return;
         
@@ -317,7 +420,6 @@ const Home = () => {
         }
     };
 
-    // Fonctions TMDB existantes (gardées telles quelles)
     const fetchPopular = async (page = 1) => {
         setTmdbLoading(true);
         try {
@@ -378,7 +480,6 @@ const Home = () => {
         }
     };
 
-    // Search-as-you-type (debounced)
     useEffect(() => {
         const q = (tmdbQuery || '').trim();
         if (!q) {
@@ -505,7 +606,6 @@ const Home = () => {
         navigate('/login', { replace: true });
     };
 
-    // RENDER
     if (loading) {
         return (
             <div style={{ textAlign: 'center', marginTop: '50px' }}>
@@ -604,6 +704,25 @@ const Home = () => {
                             >
                                 {showUsersPanel ? '❌ Fermer Users' : '👥 Gérer Users'}
                             </button>
+                            <button
+                                onClick={() => {
+                                    setShowCommentsPanel(!showCommentsPanel);
+                                    setShowTmdbPanel(false);
+                                    setShowUsersPanel(false);
+                                    setShowDeletedPanel(false);
+                                    if (!showCommentsPanel) fetchComments();
+                                }}
+                                style={{
+                                    backgroundColor: showCommentsPanel ? '#ff9800' : '#00796b',
+                                    color: 'white',
+                                    padding: '8px 16px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                {showCommentsPanel ? '❌ Fermer Commentaires' : '💬 Tous les commentaires'}
+                            </button>
                         </>
                     )}
                     
@@ -656,6 +775,58 @@ const Home = () => {
                     >
                         🔄 Réessayer
                     </button>
+                </div>
+            )}
+
+            {/* Recherche utilisateur (visible pour les users) */}
+            {!isAdmin && (
+                <div style={{
+                    border: '2px solid #e0e0e0',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '20px',
+                    backgroundColor: '#fafafa'
+                }}>
+                    <h3 style={{ marginTop: 0 }}>🔎 Rechercher un film à noter</h3>
+                    <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+                        <input
+                            placeholder="Tapez le titre..."
+                            value={userQuery}
+                            onChange={e => setUserQuery(e.target.value)}
+                            style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }}
+                        />
+                        <button
+                            onClick={() => searchForUser(userQuery, 1)}
+                            disabled={!userQuery || userLoading}
+                            style={{ backgroundColor: '#1976d2', color: 'white', padding: '10px 16px', border: 'none', borderRadius: '6px', cursor: !userQuery || userLoading ? 'not-allowed' : 'pointer' }}
+                        >
+                            {userLoading ? 'Recherche...' : 'Rechercher'}
+                        </button>
+                    </div>
+
+                    {userResults && userResults.length > 0 && (
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                            gap: '12px'
+                        }}>
+                            {userResults.map(m => (
+                                <div key={m.id} style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '8px', background: 'white', textAlign: 'center' }}>
+                                    {m.poster_path ? (
+                                        <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} style={{ width: '100%', borderRadius: '6px', marginBottom: '8px' }} />
+                                    ) : (
+                                        <div style={{ height: '180px', background: '#eee', borderRadius: '6px', marginBottom: '8px' }} />
+                                    )}
+                                    <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '6px' }}>{m.title}</div>
+                                    <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>{m.release_date || ''}</div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => addReview(m.id)} style={{ flex: 1, backgroundColor: '#5e35b1', color: 'white', border: 'none', padding: '8px', borderRadius: '6px', cursor: 'pointer' }}>Noter</button>
+                                        <button onClick={() => navigate(`/movie/${m.id}`)} style={{ flex: 1, backgroundColor: '#9c27b0', color: 'white', border: 'none', padding: '8px', borderRadius: '6px', cursor: 'pointer' }}>Détails</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -863,6 +1034,55 @@ const Home = () => {
                 </div>
             )}
 
+            {/* Panel Commentaires (admin) */}
+            {isAdmin && showCommentsPanel && (
+                <div style={{
+                    border: '2px solid #00796b',
+                    borderRadius: '8px',
+                    padding: '20px',
+                    marginBottom: '30px',
+                    backgroundColor: '#f1f8f7'
+                }}>
+                    <h2 style={{ marginTop: 0 }}>💬 Tous les Commentaires</h2>
+                    {commentsLoading ? (
+                        <p>Chargement des commentaires...</p>
+                    ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: '6px', overflow: 'hidden' }}>
+                                <thead>
+                                    <tr style={{ backgroundColor: '#00796b', color: 'white' }}>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>ID</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Film</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Auteur</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Note</th>
+                                        <th style={{ padding: '12px', textAlign: 'left', width: '40%' }}>Commentaire</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {comments.length === 0 ? (
+                                        <tr><td style={{ padding: '12px' }} colSpan={6}>Aucun commentaire</td></tr>
+                                    ) : comments.map(c => (
+                                        <tr key={c.id} style={{ borderBottom: '1px solid #eee' }}>
+                                            <td style={{ padding: '12px' }}>{c.id}</td>
+                                            <td style={{ padding: '12px' }}>{c.title || `#${c.movie_id}`}</td>
+                                            <td style={{ padding: '12px' }}>{c.user_email}</td>
+                                            <td style={{ padding: '12px' }}>{c.rating || '-'}</td>
+                                            <td style={{ padding: '12px' }}>{c.comment}</td>
+                                            <td style={{ padding: '12px' }}>
+                                                <button onClick={() => deleteComment(c.id)} style={{ backgroundColor: '#f44336', color: 'white', padding: '6px 12px', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+                                                    🗑️ Supprimer
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Panel TMDB pour les admins */}
             {isAdmin && showTmdbPanel && (
                 <div style={{
@@ -880,7 +1100,6 @@ const Home = () => {
                                     setTmdbMode('search'); 
                                     setTmdbResults([]); 
                                     setTmdbPage(1); 
-                                    // focus will trigger suggestions as user types
                                 }}
                                 style={{
                                     backgroundColor: '#2196f3',
@@ -1241,13 +1460,12 @@ const Home = () => {
                     </p>
                 )}
             </ul>
-            {/* Charger plus */}
+            {}
             <div style={{ textAlign: 'center', marginTop: '20px' }}>
                 <button
                     onClick={() => {
                         const next = catalogPages + 1;
                         setCatalogPages(next);
-                        // fetch and append next page(s)
                         fetchMovies(next, true);
                     }}
                     disabled={apiConnectionError || loadingMore}
