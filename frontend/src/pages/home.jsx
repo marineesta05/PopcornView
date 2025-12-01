@@ -969,7 +969,7 @@ const Home = () => {
                                     justifyContent: "center",
                                     marginBottom: "10px"
                                 }}>
-                                    🎬
+                                    
                                 </div>
                             )}
                             
@@ -1018,6 +1018,7 @@ const Home = () => {
                                 flexWrap: 'wrap'
                             }}>
                                 {!isAdmin ? (
+                                    <>
                                     <button 
                                             onClick={() => addReview(movie.id || movie._id)}
                                             style={{
@@ -1030,8 +1031,25 @@ const Home = () => {
                                                 flex: 1
                                             }}
                                         >
-                                            ✏️ Ajouter une Critique
+                                             Ajouter une Critique
                                         </button>
+                                        <button 
+                                            onClick={() => navigate(`/movie/${movie.id || movie._id}`)}
+                                            style={{
+                                                backgroundColor: "#5e35b1",
+                                                color: "white",
+                                                padding: "8px 12px",
+                                                border: "none",
+                                                borderRadius: "4px",
+                                                cursor: "pointer",
+                                                flex: 1
+                                            }}
+                                        >
+                                             Voir le detail du film
+                                        </button>
+                                        </>
+                                        
+
                                 ) : (
                                     <>
                                         <button 

@@ -9,20 +9,33 @@ const Login = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const response = await fetch('http://localhost:3001/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password }),
-        });
+        
+        setMessage('');
 
-        const data = await response.json();
-        if (response.ok) {
-            localStorage.setItem("token", data.token); 
-            setMessage('Login successful!');
-            navigate('/home'); 
-        } else {
-            setMessage(data.message || 'Login failed!');
-        }
+        try {
+            console.log('Tentative de connexion...'); // Debug
+            
+            const response = await fetch('http://localhost:3001/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password }),
+            });
+
+            const data = await response.json();
+            console.log('Réponse serveur:', data); // Debug
+
+            if (response.ok) {
+                localStorage.setItem("token", data.token);
+                localStorage.setItem("user", JSON.stringify(data.user)); // Sauvegarder aussi l'utilisateur
+                setMessage('Connexion réussie!');
+                setTimeout(() => navigate('/home'), 1000);
+            } else {
+                setMessage(data.message || 'Échec de la connexion');
+            }
+        } catch (error) {
+            console.error('Erreur:', error); // Debug
+            setMessage('Erreur de connexion au serveur. Vérifiez que le serveur est démarré.');
+        } 
     };
 
     return (

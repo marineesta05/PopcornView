@@ -193,32 +193,32 @@ app.delete('/api/films/:id', authenticateToken, requireAdmin, async (req, res) =
 // ========================================
 
 // GET détails d'un film spécifique
-app.get('/api/movies/:id', authenticateToken, async (req, res) => {
-  try {
-    const filmId = parseInt(req.params.id);
-    
-    if (isNaN(filmId)) {
-      return res.status(400).json({ error: 'Invalid movie ID' });
-    }
+  app.get('/api/movies/:id', authenticateToken, async (req, res) => {
+    try {
+      const filmId = parseInt(req.params.id);
+      
+      if (isNaN(filmId)) {
+        return res.status(400).json({ error: 'Invalid movie ID' });
+      }
 
-    // D'abord chercher dans les films stockés
-    const storedFilms = await readStoredFilms();
-    const storedFilm = storedFilms.find(f => 
-      parseInt(f.id) === filmId || parseInt(f._id) === filmId
-    );
+      // D'abord chercher dans les films stockés
+      const storedFilms = await readStoredFilms();
+      const storedFilm = storedFilms.find(f => 
+        parseInt(f.id) === filmId || parseInt(f._id) === filmId
+      );
 
-    if (storedFilm) {
-      return res.json({
-        id: storedFilm.id,
-        title: storedFilm.title,
-        description: storedFilm.overview,
-        poster: storedFilm.poster_path ? `https://image.tmdb.org/t/p/w500${storedFilm.poster_path}` : null,
-        genre: storedFilm.genre || 'Non spécifié',
-        duration: storedFilm.duration || 120,
-        release_date: storedFilm.release_date,
-        vote_average: storedFilm.vote_average
-      });
-    }
+      if (storedFilm) {
+        return res.json({
+          id: storedFilm.id,
+          title: storedFilm.title,
+          description: storedFilm.overview,
+          poster: storedFilm.poster_path ? `https://image.tmdb.org/t/p/w500${storedFilm.poster_path}` : null,
+          genre: storedFilm.genre || 'Non spécifié',
+          duration: storedFilm.duration || 120,
+          release_date: storedFilm.release_date,
+          vote_average: storedFilm.vote_average
+        });
+      }
 
     // Si pas trouvé localement, chercher dans TMDB
     const apiKey = process.env.TMDB_API_KEY;
@@ -292,11 +292,7 @@ app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
   }
 });
 
-// ========================================
-// ROUTES TMDB (API Externe) - PROTÉGÉES
-// ========================================
 
-// GET films populaires TMDB (accessible à tous)
 app.get('/api/tmdb/popular', authenticateToken, async (req, res) => {
   try {
     const apiKey = process.env.TMDB_API_KEY;
@@ -438,9 +434,7 @@ app.post('/api/sync-tmdb', authenticateToken, requireAdmin, async (req, res) => 
   }
 });
 
-// ========================================
-// ROUTES GÉNÉRALES
-// ========================================
+
 
 app.get('/', (req, res) => {
   res.json({
