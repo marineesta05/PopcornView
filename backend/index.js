@@ -7,6 +7,9 @@ const path = require('path');
 const fs = require('fs').promises;
 const jwt = require('jsonwebtoken');
 
+const REVIEW_SERVICE_BASE = (process.env.REVIEW_SERVICE_URL || 'http://localhost:3003')
+  .replace(/^http(?!s):/, process.env.NODE_ENV === 'production' ? 'https:' : 'http:');
+
 // Import node-fetch si nécessaire
 let fetch;
 try {
@@ -35,7 +38,7 @@ app.use(express.urlencoded({ extended: true }));
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Format: "Bearer <token>"
+  const token = authHeader && authHeader.split(' ')[1]; 
 
   if (!token) {
     return res.status(401).json({ error: 'Token d\'authentification requis' });
@@ -51,17 +54,12 @@ function authenticateToken(req, res, next) {
   });
 }
 
-// Middleware pour vérifier le rôle admin
 function requireAdmin(req, res, next) {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Accès réservé aux administrateurs' });
   }
   next();
 }
-
-// ========================================
-// HELPERS - Gestion fichier films.json
-// ========================================
 
 const DATA_PATH = path.join(__dirname, 'data', 'films.json');
 
@@ -79,11 +77,8 @@ async function writeStoredFilms(arr) {
   await fs.writeFile(DATA_PATH, JSON.stringify(arr, null, 2), 'utf8');
 }
 
-// ========================================
-// ROUTES FILMS (CRUD) - PROTÉGÉES
-// ========================================
 
-// GET tous les films (accessible à tous les utilisateurs authentifiés)
+
 app.get('/api/films', authenticateToken, async (req, res) => {
   try {
     const films = await readStoredFilms();
@@ -94,7 +89,7 @@ app.get('/api/films', authenticateToken, async (req, res) => {
   }
 });
 
-// POST ajouter un film (admin seulement)
+
 app.post('/api/films', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const payload = req.body;
@@ -105,7 +100,6 @@ app.post('/api/films', authenticateToken, requireAdmin, async (req, res) => {
     
     const films = await readStoredFilms();
     
-    // Vérifier si le film existe déjà
     const exists = films.find(f => 
       String(f.id) === String(payload.id) || 
       String(f._id) === String(payload._id)
@@ -258,7 +252,7 @@ app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
     }
 
     // Faire une requête au service reviews sur le port 3003
-    const reviewsUrl = `http://localhost:3003/reviews/movie/${filmId}`;
+    const reviewsUrl = `${REVIEW_SERVICE_BASE}/reviews/movie/${filmId}`;
     const reviewsResponse = await fetch(reviewsUrl, {
       headers: {
         'Authorization': req.headers['authorization'] || ''
