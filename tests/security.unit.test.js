@@ -86,4 +86,64 @@ describe('Security - Unit checks (static/exports)', () => {
     expect(/export function getCsrfToken\(\)/.test(content) || /function getCsrfToken\(\)/.test(content)).toBe(true);
     expect(/attachCsrfHeader\(/.test(content)).toBe(true);
   });
+
+  // Vérifie qu'il n'y a pas d'utilisation de `eval` dans les fichiers serveur critiques.
+  test('11) backend files should not use eval()', () => {
+    const files = ['server.js', 'fetch_tmdb.js', path.join('movie', 'serverReview.js'), path.join('user', 'server.js')];
+    files.forEach((f) => {
+      const p = path.join(backend, f);
+      if (fs.existsSync(p)) {
+        const content = fs.readFileSync(p, 'utf8');
+        expect(/\beval\(/.test(content)).toBe(false);
+      }
+    });
+  });
+
+  // Vérifie qu'il n'y a pas de mots de passe codés en dur dans les fichiers backend.
+  test('12) no hardcoded password-like string literals in backend files', () => {
+    const p = path.join(backend, 'server.js');
+    const content = fs.readFileSync(p, 'utf8');
+    const hardLiteral = /password\s*[:=]\s*['\"][^'\"]{1,}['\"]/i;
+    const hardConst = /PASSWORD\s*[:=]\s*['\"]/;
+    expect(hardLiteral.test(content)).toBe(false);
+    expect(hardConst.test(content)).toBe(false);
+  });
+
+  // Vérifie que backend/package.json ne contient pas d'environnement sensible injecté dans les scripts.
+  test('13) backend package.json scripts do not contain inline secrets', () => {
+    const pkg = path.join(backend, 'package.json');
+    if (fs.existsSync(pkg)) {
+      const content = fs.readFileSync(pkg, 'utf8');
+      expect(/JWT_SECRET=/.test(content)).toBe(false);
+      expect(/TMDB_API_KEY=/.test(content)).toBe(false);
+    } else {
+      expect(true).toBe(true);
+    }
+  });
+
+  // Vérifie que les JWT sont créés avec un paramètre d'expiration (heuristique: "expiresIn").
+  test('14) JWT creation uses expiresIn (token expiry)', () => {
+    const files = ['server.js', path.join('user', 'server.js')];
+    let found = false;
+    files.forEach((f) => {
+      const p = path.join(backend, f);
+      if (fs.existsSync(p)) {
+        const content = fs.readFileSync(p, 'utf8');
+        if (/expiresIn/.test(content) || /exp\s*:/.test(content)) found = true;
+      }
+    });
+    expect(found).toBe(true);
+  });
+
+  // Vérifie qu'aucune configuration CORS ouverte ('*') n'est présente dans les fichiers backend.
+  test('15) no wildcard CORS origin configured in backend files', () => {
+    const p = path.join(backend, 'server.js');
+    if (fs.existsSync(p)) {
+      const content = fs.readFileSync(p, 'utf8');
+      expect(/origin\s*:\s*\*/.test(content)).toBe(false);
+      expect(/origin:\s*'\*'/.test(content)).toBe(false);
+    } else {
+      expect(true).toBe(true);
+    }
+  });
 });

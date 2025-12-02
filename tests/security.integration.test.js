@@ -81,4 +81,69 @@ describe('Security - Integration-ish checks (static + storage)', () => {
     expect(/sync-tmdb/.test(content)).toBe(true);
     expect(/TMDB_API_KEY/.test(content)).toBe(true);
   });
+
+  // Vérifie que les routes d'authentification utilisent des méthodes POST pour envoyer des credentials.
+  test('11) auth endpoints use POST for credentials (login/register)', () => {
+    const files = [path.join(backend, 'server.js'), path.join(backend, 'user', 'server.js')];
+    let foundPost = false;
+    const rxLogin = /\.post\(\s*['"`][^'"`]*login/i;
+    const rxRegister = /\.post\(\s*['"`][^'"`]*register/i;
+    files.forEach((p) => {
+      if (fs.existsSync(p)) {
+        const content = fs.readFileSync(p, 'utf8');
+        if (rxLogin.test(content) || rxRegister.test(content)) foundPost = true;
+      }
+    });
+    expect(foundPost).toBe(true);
+  });
+
+  // Vérifie que les routines de reset de mot de passe semblent inclure une expiration (heuristique: expiresIn/expiry).
+  test('12) password reset tokens include expiry (heuristic)', () => {
+    const p = path.join(backend, 'user', 'server.js');
+    if (fs.existsSync(p)) {
+      const content = fs.readFileSync(p, 'utf8');
+      if (/reset/i.test(content) || /forgot/i.test(content)) {
+        expect(/expiresIn|expiry|expiration|expiresAt/.test(content)).toBe(true);
+      } else {
+        expect(true).toBe(true);
+      }
+    } else {
+      expect(true).toBe(true);
+    }
+  });
+
+  // Vérifie que les JWT sont signés avec la variable d'environnement dans le code backend.
+  test('13) JWT signing uses process.env.JWT_SECRET (no hardcoded secret)', () => {
+    const files = [path.join(backend, 'server.js'), path.join(backend, 'user', 'server.js')];
+    let ok = false;
+    files.forEach((p) => {
+      if (fs.existsSync(p)) {
+        const content = fs.readFileSync(p, 'utf8');
+        if ((/jwt\.sign/.test(content) && /process\.env\.JWT_SECRET/.test(content)) || /const\s+secret\s*=\s*process\.env\.JWT_SECRET/.test(content) || /process\.env\.JWT_SECRET\s*\|\|/.test(content)) ok = true;
+      }
+    });
+    expect(ok).toBe(true);
+  });
+
+  // Vérifie qu'aucune fuite de stack (err.stack) n'est envoyée dans les handlers d'erreur (static check).
+  test('14) server code does not expose err.stack in responses', () => {
+    const files = [path.join(backend, 'server.js'), path.join(backend, 'user', 'server.js')];
+    files.forEach((p) => {
+      if (fs.existsSync(p)) {
+        const content = fs.readFileSync(p, 'utf8');
+        expect(/err\.stack/.test(content)).toBe(false);
+      }
+    });
+  });
+
+  // Vérifie qu'on ne sert pas le dossier `data` en statique depuis express (éviter fuite de données internes).
+  test('15) backend does not serve internal data directory via express.static', () => {
+    const p = path.join(backend, 'server.js');
+    if (fs.existsSync(p)) {
+      const content = fs.readFileSync(p, 'utf8');
+      expect(/express\.static\([^\)]*data/.test(content)).toBe(false);
+    } else {
+      expect(true).toBe(true);
+    }
+  });
 });
