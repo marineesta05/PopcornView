@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { jwtDecode } from "jwt-decode";
+import { getCsrfToken } from '../utils/csrf';
 
 const FILMS_API = 'http://localhost:4000/api';
 
@@ -12,7 +12,6 @@ const Home = () => {
     const [isAdmin, setIsAdmin] = useState(false);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
-    const [token, setToken] = useState(localStorage.getItem("token"));
     
     const [showTmdbPanel, setShowTmdbPanel] = useState(false);
     const [showUsersPanel, setShowUsersPanel] = useState(false);
@@ -46,58 +45,35 @@ const Home = () => {
     });
     
     useEffect(() => {
-        const checkAuth = () => {
-            const currentToken = localStorage.getItem("token");
-            
-            if (!currentToken) {
-                console.log("❌ Aucun token trouvé, redirection vers login");
-                navigate('/login', { replace: true });
-                return;
-            }
-
+        const checkAuth = async () => {
             try {
-                const decoded = jwtDecode(currentToken);
-                const currentTime = Date.now() / 1000;
-                
-                if (decoded.exp && decoded.exp < currentTime) {
-                    console.log("❌ Token expiré");
-                    localStorage.removeItem("token");
-                    navigate('/login', { replace: true });
+                const resp = await axios.get(`${FILMS_API}/auth/me`, { withCredentials: true, timeout: 5000 });
+                if (resp && resp.data && resp.data.user) {
+                    setIsAdmin(resp.data.user.role === 'admin');
+                    setLoading(false);
                     return;
                 }
-                
-                console.log("✅ Token valide, rôle:", decoded.role);
-                setIsAdmin(decoded.role === 'admin');
-                setToken(currentToken);
-                setLoading(false);
-            } catch (error) {
-                console.error("❌ Token invalide:", error.message);
-                localStorage.removeItem("token");
+                navigate('/login', { replace: true });
+            } catch (err) {
+                console.error('Auth check failed', err);
                 navigate('/login', { replace: true });
             }
         };
-
         checkAuth();
     }, [navigate]);
     
     useEffect(() => {
-        if (!loading && token) {
-                console.log("🔄 Chargement des films...");
-                fetchMovies(catalogPages);
-                if (isAdmin) {
-                    fetchUsers();
-                }
-            }
-    }, [loading, token, isAdmin, catalogPages]);
+        if (!loading) {
+            console.log("🔄 Chargement des films...");
+            fetchMovies(catalogPages);
+            if (isAdmin) fetchUsers();
+        }
+    }, [loading, isAdmin, catalogPages]);
 
     const fetchDeletedFilms = async () => {
-        if (!token) return;
         setDeletedLoading(true);
         try {
-            const resp = await axios.get(`${FILMS_API}/films/deleted`, {
-                headers: { 'Authorization': `Bearer ${token}` },
-                timeout: 10000
-            });
+            const resp = await axios.get(`${FILMS_API}/films/deleted`, { withCredentials: true, timeout: 10000 });
             setDeletedFilms(resp.data || []);
         } catch (err) {
             console.error('Erreur fetchDeletedFilms', err);
@@ -109,12 +85,11 @@ const Home = () => {
     };
 
     const restoreDeleted = async (movieId) => {
-        if (!token) return;
         if (!window.confirm('Restaurer ce film ?')) return;
         try {
-            await axios.post(`${FILMS_API}/films/${movieId}/restore`, {}, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const headers = {};
+            const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+            await axios.post(`${FILMS_API}/films/${movieId}/restore`, {}, { withCredentials: true, headers });
             setMessage('✅ Film restauré');
             fetchMovies();
             fetchDeletedFilms();
@@ -127,26 +102,32 @@ const Home = () => {
     };
 
     const fetchComments = async () => {
-        if (!token) return;
         setCommentsLoading(true);
         try {
-            const res = await axios.get('http://localhost:3003/reviews', {
-                headers: { 'Authorization': `Bearer ${token}` },
-                timeout: 10000
-            });
+            const res = await axios.get('http://localhost:3003/reviews', { withCredentials: true, timeout: 10000 });
             const rows = res.data || [];
 
             const enriched = await Promise.all(rows.map(async r => {
                 const movieId = r.movie_id;
                 let title = '';
                 try {
-                    const mres = await axios.get(`${FILMS_API}/movies/${movieId}`, {
-                        headers: { 'Authorization': `Bearer ${token}` },
-                        timeout: 8000
-                    });
+                    const mres = await axios.get(`${FILMS_API}/films/${movieId}`, { withCredentials: true, timeout: 8000 });
                     title = mres.data && (mres.data.title || mres.data.name) ? (mres.data.title || mres.data.name) : '';
                 } catch (e) {
                 }
+
+                if (!title) {
+                    try {
+                        const local = (movies || []).find(m => String(m.id) === String(movieId) || String(m._id) === String(movieId));
+                        if (local && (local.title || local.name)) {
+                            title = local.title || local.name || '';
+                        }
+                    } catch (e) {
+                    }
+                }
+
+                if (!title) console.warn('Comment fetch: title not found for movie id', movieId);
+
                 return {
                     id: r.id,
                     movie_id: r.movie_id,
@@ -168,13 +149,11 @@ const Home = () => {
     };
 
     const deleteComment = async (id) => {
-        if (!token) return;
         if (!window.confirm('Supprimer ce commentaire définitivement ?')) return;
         try {
-            await axios.delete(`http://localhost:3003/reviews/${id}`, {
-                headers: { 'Authorization': `Bearer ${token}` },
-                timeout: 10000
-            });
+            const headers = {};
+            const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+            await axios.delete(`http://localhost:3003/reviews/${id}`, { withCredentials: true, timeout: 10000, headers });
             setMessage('✅ Commentaire supprimé');
             fetchComments();
             setTimeout(() => setMessage(''), 2000);
@@ -205,16 +184,10 @@ const Home = () => {
         }
         setUserLoading(true);
         try {
-            const response = await axios.get(`${FILMS_API}/tmdb/search?q=${encodeURIComponent(q)}&page=${page}`, {
-                timeout: 10000,
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const response = await axios.get(`${FILMS_API}/tmdb/search?q=${encodeURIComponent(q)}&page=${page}`, { timeout: 10000 });
             let results = response.data.results || [];
             try {
-                const delResp = await axios.get(`${FILMS_API}/films/deleted`, {
-                    timeout: 8000,
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
+                const delResp = await axios.get(`${FILMS_API}/films/deleted`, { withCredentials: true, timeout: 8000 });
                 const deleted = delResp.data || [];
                 const deletedIds = new Set((deleted || []).map(d => String(d._id || d.id)));
                 results = (results || []).filter(r => !deletedIds.has(String(r.id)));
@@ -246,20 +219,12 @@ const Home = () => {
     }, [userQuery]);
 
     const fetchMovies = async (pages = catalogPages, append = false) => {
-        if (!token) {
-            console.log("❌ Aucun token disponible pour fetchMovies");
-            return;
-        }
-
         if (append) setLoadingMore(true);
         try {
-            console.log("🔄 Fetch catalog avec token:", token);
-            const response = await axios.get(`${FILMS_API}/catalog?pages=${pages}`, {
-                timeout: 10000,
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
+            console.log("🔄 Fetch catalog");
+            const response = await axios.get(`${FILMS_API}/catalog?pages=${pages}`, { 
+                timeout: 10000, 
+                withCredentials: true 
             });
 
             const results = response.data && response.data.results ? response.data.results : [];
@@ -280,10 +245,7 @@ const Home = () => {
             if (append) setLoadingMore(false);
             console.error("❌ Erreur fetchMovies (catalog):", error);
             try {
-                const resp2 = await axios.get(`${FILMS_API}/films`, {
-                    timeout: 10000,
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
+                const resp2 = await axios.get(`${FILMS_API}/films`, { withCredentials: true, timeout: 10000 });
                 setMovies(resp2.data || []);
                 setApiConnectionError(false);
                 return;
@@ -296,9 +258,8 @@ const Home = () => {
                 setMessage(`❌ Impossible de se connecter à l'API Films (${FILMS_API}). Vérifiez que le serveur backend est démarré.`);
                 setApiConnectionError(true);
             } else if (error.response?.status === 401) {
-                setMessage('Token invalide ou expiré. Veuillez vous reconnecter.');
+                setMessage('Session invalide ou expirée. Veuillez vous reconnecter.');
                 setTimeout(() => {
-                    localStorage.removeItem("token");
                     navigate('/login', { replace: true });
                 }, 3000);
             } else if (error.response?.status === 403) {
@@ -316,11 +277,7 @@ const Home = () => {
         if (!isAdmin) return;
         
         try {
-            const response = await axios.get(`localhost:3000/users`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+            const response = await axios.get(`${FILMS_API}/users`, { withCredentials: true, timeout: 10000 });
             setUsers(response.data || []);
         } catch (error) {
             console.error("Erreur lors du chargement des utilisateurs:", error);
@@ -332,12 +289,9 @@ const Home = () => {
     const createUser = async (e) => {
         e.preventDefault();
         try {
-            await axios.post(`http://localhost:3000/register`, userForm, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            const headers = { 'Content-Type': 'application/json' };
+            const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+            await axios.post(`${FILMS_API}/users`, userForm, { withCredentials: true, headers });
             
             setUserForm({ nom: '', prenom: '', email: '', password: '', role: 'user' });
             setMessage('✅ Utilisateur créé avec succès');
@@ -354,12 +308,9 @@ const Home = () => {
         e.preventDefault();
         try {
             const adminData = { ...userForm, role: 'admin' };
-            await axios.post(`${FILMS_API}/users`, adminData, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            const headers = { 'Content-Type': 'application/json' };
+            const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+            await axios.post(`${FILMS_API}/users`, adminData, { withCredentials: true, headers });
             
             setUserForm({ nom: '', prenom: '', email: '', password: '', role: 'user' });
             setMessage('✅ Administrateur créé avec succès');
@@ -384,10 +335,8 @@ const Home = () => {
             if (password) payload.password = password;
 
             await axios.put(`${FILMS_API}/users/${user.id}`, payload, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
+                withCredentials: true,
+                headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken() }
             });
 
             setMessage('✅ Utilisateur mis à jour avec succès');
@@ -404,11 +353,7 @@ const Home = () => {
         if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return;
 
         try {
-            await axios.delete(`${FILMS_API}/users/${userId}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+            await axios.delete(`${FILMS_API}/users/${userId}`, { withCredentials: true, headers: { 'x-csrf-token': getCsrfToken() } });
 
             setMessage('✅ Utilisateur supprimé avec succès');
             fetchUsers();
@@ -423,12 +368,7 @@ const Home = () => {
     const fetchPopular = async (page = 1) => {
         setTmdbLoading(true);
         try {
-            const response = await axios.get(`${FILMS_API}/tmdb/popular?page=${page}`, {
-                timeout: 10000,
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+            const response = await axios.get(`${FILMS_API}/tmdb/popular?page=${page}`, { timeout: 10000 });
             setTmdbResults(response.data.results || []);
             setTmdbPage(response.data.page || 1);
             setTmdbTotalPages(response.data.total_pages || 1);
@@ -452,15 +392,7 @@ const Home = () => {
         if (!q) return setTmdbResults([]);
         setTmdbLoading(true);
         try {
-            const response = await axios.get(
-                `${FILMS_API}/tmdb/search?q=${encodeURIComponent(q)}&page=${page}`,
-                {
-                    timeout: 10000,
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                }
-            );
+            const response = await axios.get(`${FILMS_API}/tmdb/search?q=${encodeURIComponent(q)}&page=${page}`, { timeout: 10000 });
             setTmdbResults(response.data.results || []);
             setTmdbPage(response.data.page || 1);
             setTmdbTotalPages(response.data.total_pages || 1);
@@ -513,12 +445,7 @@ const Home = () => {
                 vote_average: m.vote_average
             };
 
-            await axios.post(`${FILMS_API}/films`, payload, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            await axios.post(`${FILMS_API}/films`, payload, { withCredentials: true, headers: { 'Content-Type':'application/json', 'x-csrf-token': getCsrfToken() } });
             
             await fetchMovies();
             setMessage('✅ Film ajouté avec succès');
@@ -554,12 +481,7 @@ const Home = () => {
                 poster_path: movie.poster_path
             };
 
-            await axios.put(`${FILMS_API}/films/${movie._id || movie.id}`, payload, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            await axios.put(`${FILMS_API}/films/${movie._id || movie.id}`, payload, { withCredentials: true, headers: { 'Content-Type':'application/json', 'x-csrf-token': getCsrfToken() } });
 
             setMessage('✅ Film mis à jour avec succès');
             setTimeout(() => setMessage(''), 2000);
@@ -579,11 +501,7 @@ const Home = () => {
         if (!window.confirm('Êtes-vous sûr de vouloir supprimer ce film ?')) return;
 
         try {
-            await axios.delete(`${FILMS_API}/films/${movieId}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+            await axios.delete(`${FILMS_API}/films/${movieId}`, { withCredentials: true, headers: { 'x-csrf-token': getCsrfToken() } });
 
             setMessage('✅ Film supprimé avec succès');
             setTimeout(() => setMessage(''), 2000);
@@ -599,10 +517,11 @@ const Home = () => {
         }
     };
 
-    const handleLogout = () => {
-        console.log("🚪 Déconnexion");
-        localStorage.removeItem("token");
-        setToken(null);
+    const handleLogout = async () => {
+        try {
+            await axios.post(`${FILMS_API}/auth/logout`, {}, { withCredentials: true });
+        } catch (e) {
+        }
         navigate('/login', { replace: true });
     };
 
@@ -616,7 +535,7 @@ const Home = () => {
 
     return (
         <div style={{ padding: '20px' }}>
-            {/* Header */}
+            {}
             <div style={{ 
                 display: 'flex', 
                 justifyContent: 'space-between', 
@@ -630,7 +549,7 @@ const Home = () => {
                     <small style={{ color: '#666' }}>
                         API: {FILMS_API} | 
                         Utilisateur: {isAdmin ? 'Admin' : 'User'} |
-                        Token: {token ? '✓ Présent' : '✗ Absent'}
+                        Session: Authenticated
                     </small>
                 </div>
                 
@@ -726,23 +645,38 @@ const Home = () => {
                         </>
                     )}
                     
-                    <button 
-                        onClick={handleLogout}
-                        style={{
-                            backgroundColor: "#d32f2f",
-                            color: "white",
-                            padding: "8px 16px",
-                            border: "none",
-                            borderRadius: "4px",
-                            cursor: "pointer"
-                        }}
-                    >
-                        🚪 Déconnexion
-                    </button>
+                    <>
+                        <button
+                            onClick={() => navigate('/profile')}
+                            style={{
+                                backgroundColor: '#455a64',
+                                color: 'white',
+                                padding: '8px 16px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            👤 Mon profil
+                        </button>
+                        <button 
+                            onClick={handleLogout}
+                            style={{
+                                backgroundColor: "#d32f2f",
+                                color: "white",
+                                padding: "8px 16px",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: "pointer"
+                            }}
+                        >
+                            🚪 Déconnexion
+                        </button>
+                    </>
                 </div>
             </div>
 
-            {/* Alert si API non accessible */}
+            { }
             {apiConnectionError && (
                 <div style={{
                     backgroundColor: '#ffebee',
@@ -778,7 +712,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Recherche utilisateur (visible pour les users) */}
+            {}
             {!isAdmin && (
                 <div style={{
                     border: '2px solid #e0e0e0',
@@ -830,7 +764,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Panel Gestion des Utilisateurs pour les admins */}
+            {}
             {isAdmin && showUsersPanel && (
                 <div style={{
                     border: '2px solid #9c27b0',
@@ -841,7 +775,7 @@ const Home = () => {
                 }}>
                     <h2 style={{ marginTop: 0, color: '#7b1fa2' }}>👥 Gestion des Utilisateurs</h2>
                     
-                    {/* Formulaire de création d'utilisateur */}
+                    {}
                     <form onSubmit={createUser} style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
@@ -915,7 +849,7 @@ const Home = () => {
                         </div>
                     </form>
 
-                    {/* Liste des utilisateurs */}
+                    {}
                     <div style={{ overflowX: 'auto' }}>
                         <table style={{ 
                             width: '100%', 
@@ -989,7 +923,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Panel Films Supprimés (admin) */}
+            {}
             {isAdmin && showDeletedPanel && (
                 <div style={{
                     border: '2px solid #607d8b',
@@ -1034,7 +968,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Panel Commentaires (admin) */}
+            {}
             {isAdmin && showCommentsPanel && (
                 <div style={{
                     border: '2px solid #00796b',
@@ -1065,7 +999,14 @@ const Home = () => {
                                     ) : comments.map(c => (
                                         <tr key={c.id} style={{ borderBottom: '1px solid #eee' }}>
                                             <td style={{ padding: '12px' }}>{c.id}</td>
-                                            <td style={{ padding: '12px' }}>{c.title || `#${c.movie_id}`}</td>
+                                            <td style={{ padding: '12px' }}>
+                                                {c.title ? (
+                                                    <span>
+                                                        <strong>{c.title}</strong>{' '}
+                                                        <span style={{ color: '#666' }}>({`#${c.movie_id}`})</span>
+                                                    </span>
+                                                ) : `#${c.movie_id}`}
+                                            </td>
                                             <td style={{ padding: '12px' }}>{c.user_email}</td>
                                             <td style={{ padding: '12px' }}>{c.rating || '-'}</td>
                                             <td style={{ padding: '12px' }}>{c.comment}</td>
@@ -1083,7 +1024,7 @@ const Home = () => {
                 </div>
             )}
 
-            {/* Panel TMDB pour les admins */}
+            {}
             {isAdmin && showTmdbPanel && (
                 <div style={{
                     border: '2px solid #2196f3',

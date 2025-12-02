@@ -1,21 +1,35 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AdminHeader from './AdminHeader';
+import { getCsrfToken } from './utils/csrf';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:4000';
 
 export default function AdminUsers() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [form, setForm] = useState({ nom:'', prenom:'', email:'', password:'', role:'user' });
 
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => { 
+    (async function check() {
+      try {
+        const me = await fetch(`${API}/api/auth/me`, { credentials: 'include' });
+        if (!me.ok) return navigate('/login');
+        const data = await me.json();
+        if (!data.user || data.user.role !== 'admin') return navigate('/login');
+      } catch (e) {
+        return navigate('/login');
+      }
+      fetchUsers();
+    })();
+  }, []);
 
   async function fetchUsers() {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API}/api/users`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API}/api/users`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
       setUsers(data || []);
@@ -28,8 +42,9 @@ export default function AdminUsers() {
     e && e.preventDefault();
     try {
       const payload = { ...form };
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API}/api/users`, { method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload) });
+      const headers = { 'Content-Type':'application/json' };
+      const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+      const res = await fetch(`${API}/api/users`, { method: 'POST', credentials: 'include', headers, body: JSON.stringify(payload) });
       if (!res.ok) {
         const text = await res.text(); throw new Error(text || 'Create failed');
       }
@@ -45,8 +60,9 @@ export default function AdminUsers() {
   async function deleteUser(id) {
     if (!window.confirm('Delete user?')) return;
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API}/api/users/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      const headers = {};
+      const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+      const res = await fetch(`${API}/api/users/${id}`, { method: 'DELETE', credentials: 'include', headers });
       if (!res.ok) throw new Error('Delete failed');
       setMessage('Deleted');
       await fetchUsers();
@@ -65,8 +81,9 @@ export default function AdminUsers() {
       const password = window.prompt('New password (leave empty to keep)') || '';
       const payload = { nom, prenom, email, role };
       if (password) payload.password = password;
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API}/api/users/${u.id}`, { method: 'PUT', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload) });
+      const headers = { 'Content-Type':'application/json' };
+      const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+      const res = await fetch(`${API}/api/users/${u.id}`, { method: 'PUT', credentials: 'include', headers, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error('Update failed');
       setMessage('Updated');
       await fetchUsers();
@@ -80,8 +97,9 @@ export default function AdminUsers() {
     e && e.preventDefault();
     try {
       const payload = { ...form, role: 'admin' };
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API}/api/users`, { method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload) });
+      const headers = { 'Content-Type':'application/json' };
+      const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+      const res = await fetch(`${API}/api/users`, { method: 'POST', credentials: 'include', headers, body: JSON.stringify(payload) });
       if (!res.ok) {
         const text = await res.text(); throw new Error(text || 'Create failed');
       }

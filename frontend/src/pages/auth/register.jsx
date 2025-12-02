@@ -9,7 +9,8 @@ const Register = () => {
         prenom: "",
         email: "",
         password: "",
-        role: "user"
+        role: "user",
+        consent: false
     });
 
     const [error, setError] = useState("");
@@ -24,22 +25,27 @@ const Register = () => {
         e.preventDefault();
         setError("");
         setSuccess("");
+        if (!formData.consent) {
+            setError('Vous devez accepter l\'utilisation de vos données.');
+            return;
+        }
 
         try {
             const response = await fetch("http://localhost:3001/register", {
                 method: "POST",
+                credentials: 'include',
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify(formData)
+                body: JSON.stringify({ nom: formData.nom, prenom: formData.prenom, email: formData.email, password: formData.password })
             });
 
             const data = await response.json();
 
             if (response.status === 201) {
-                setSuccess("Registration successful!");
+                setSuccess("Inscription réussie ! Connectez-vous.");
                 navigate("/login");  
-                setFormData({ email: "", password: "" });
+                setFormData({ nom:'', prenom:'', email: "", password: "", consent:false });
             } else {
                 setError(data.message || "Une erreur s'est produite.");
             }
@@ -119,8 +125,15 @@ const Register = () => {
                         required
                     />
                     <small style={{ color: "#666", fontSize: "12px" }}>
-                        Min. 8 caractères, 1 majuscule, 1 minuscule, 1 chiffre, 1 caractère spécial (@$!%*?&)
+                        Min. 12 caractères et au moins 3 des 4 types : majuscule, minuscule, chiffre, caractère spécial
                     </small>
+                </div>
+
+                <div style={{ marginBottom: '15px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input type="checkbox" name="consent" checked={formData.consent} onChange={(e)=>setFormData({...formData, consent: e.target.checked})} />
+                        <span>J'accepte que mes données soient utilisées pour fournir le service.</span>
+                    </label>
                 </div>
 
                 <button 

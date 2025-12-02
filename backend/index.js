@@ -20,11 +20,8 @@ try {
 }
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.FILMS_SERVER_PORT || 4001;
 
-// ========================================
-// MIDDLEWARE
-// ========================================
 
 app.use(cors({ 
   origin: ['http://localhost:3000', 'http://localhost:3001'], 
@@ -34,9 +31,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ========================================
-// MIDDLEWARE AUTHENTIFICATION JWT
-// ========================================
+
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];

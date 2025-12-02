@@ -1,7 +1,7 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
-console.log('🔌 Initialisation de la connexion MySQL...');
+console.log('Initialisation de la connexion MySQL...');
 
 const requiredEnvVars = ['DB_HOST', 'DB_USER', 'DB_NAME'];
 const missingVars = requiredEnvVars.filter(v => !process.env[v]);
@@ -22,8 +22,7 @@ const db = mysql.createPool({
     queueLimit: 0,
     
     connectTimeout: 10000,      
-    acquireTimeout: 10000,     
-    timeout: 60000,             
+                
     
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000

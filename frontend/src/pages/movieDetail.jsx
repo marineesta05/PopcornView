@@ -14,45 +14,38 @@ export default function MovieDetail() {
     const [loadingReviews, setLoadingReviews] = useState(false);
     const [error, setError] = useState(null);
 
-    // Récupérer le token du localStorage
-    const getAuthToken = () => {
-        return localStorage.getItem('token');
+    const fetchOptions = () => ({ credentials: 'include' });
+
+    useEffect(() => {
+    if (!id) return;
+    
+    const fetchMovie = async () => {
+        setLoadingMovie(true);
+        setError(null);
+        
+        try {
+            // ✅ Utiliser withCredentials pour envoyer automatiquement les cookies
+            const response = await fetch(`http://localhost:4000/api/movies/${id}`, {
+                credentials: 'include'  // ✅ Envoie les cookies automatiquement
+            });
+            
+            if (!response.ok) {
+                throw new Error("Failed to load movie");
+            }
+            
+            const data = await response.json();
+            setMovie(data);
+        } catch (err) {
+            console.error('Error loading movie:', err);
+            setError(err.message || "Error loading movie");
+        } finally {
+            setLoadingMovie(false);
+        }
     };
 
-    // Fetch movie details
-    useEffect(() => {
-        if (!id) return;
-        
-        const fetchMovie = async () => {
-            setLoadingMovie(true);
-            setError(null);
-            
-            try {
-                const token = getAuthToken();
-                const response = await fetch(`http://localhost:4000/api/movies/${id}`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-                
-                if (!response.ok) {
-                    throw new Error("Failed to load movie");
-                }
-                
-                const data = await response.json();
-                setMovie(data);
-            } catch (err) {
-                console.error('Error loading movie:', err);
-                setError(err.message || "Error loading movie");
-            } finally {
-                setLoadingMovie(false);
-            }
-        };
+    fetchMovie();
+}, [id]);
 
-        fetchMovie();
-    }, [id]);
-
-    // Fetch reviews
     useEffect(() => {
         if (!id) return;
         
@@ -60,7 +53,6 @@ export default function MovieDetail() {
         setPage(0);
         setHasMore(true);
         loadReviews(0);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     async function loadReviews(pageToLoad) {
@@ -70,12 +62,7 @@ export default function MovieDetail() {
         setError(null);
         
         try {
-            const token = getAuthToken();
-            const response = await fetch(`http://localhost:4000/api/movies/${id}/reviews`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+                const response = await fetch(`http://localhost:4000/api/movies/${id}/reviews`, fetchOptions());
             
             if (!response.ok) {
                 throw new Error("Failed to load reviews");
@@ -87,7 +74,6 @@ export default function MovieDetail() {
                 throw new Error("Invalid reviews response");
             }
             
-            // Pagination côté client
             const startIndex = pageToLoad * PAGE_SIZE;
             const paginatedData = data.slice(startIndex, startIndex + PAGE_SIZE);
             
@@ -148,7 +134,7 @@ export default function MovieDetail() {
                         </span>
                     </div>
                     
-                    {/* Bouton pour ajouter un avis */}
+                    {}
                     <div style={{ marginBottom: 16 }}>
                         <button 
                             onClick={handleAddReview}
@@ -246,6 +232,15 @@ export default function MovieDetail() {
                     </div>
                 )}
             </section>
+            <button onClick={navigate.bind(null, '/home')}
+                            style={{
+                                padding: "10px 20px",
+                                backgroundColor: "#5e35b1",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: "pointer"
+                            }}>Retourner a la liste des films</button>
         </div>
     );
 }

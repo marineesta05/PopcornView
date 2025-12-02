@@ -1,11 +1,15 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate, useParams } from "react-router-dom";
+import { getCsrfToken } from '../utils/csrf';
 
 const AddReview = () => {
     const navigate = useNavigate();
     const { movieId } = useParams();
-    const [token, setToken] = useState(localStorage.getItem("token"));
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [checkingAuth, setCheckingAuth] = useState(true);
+
+    const MAX_COMMENT = 500;
 
     const [formData, setFormData] = useState({
         rating: "",
@@ -16,33 +20,43 @@ const AddReview = () => {
     const [success, setSuccess] = useState("");
     const [loading, setLoading] = useState(false);
 
-    // Vérifier la validité du token au chargement
+    // Vérifier l'authentification
     useEffect(() => {
-        checkTokenValidity();
+        const checkAuth = async () => {
+            try {
+                const response = await axios.get('http://localhost:4000/api/auth/me', {
+                    withCredentials: true,
+                    timeout: 5000
+                });
+                
+                if (response.data && response.data.user) {
+                    setIsAuthenticated(true);
+                } else {
+                    setIsAuthenticated(false);
+                }
+            } catch (error) {
+                console.error("Erreur vérification auth:", error);
+                setIsAuthenticated(false);
+            } finally {
+                setCheckingAuth(false);
+            }
+        };
+
+        checkAuth();
     }, []);
-
-    const checkTokenValidity = () => {
-        if (!token) {
-            setError("Vous devez être connecté pour ajouter un avis");
-            return false;
-        }
-
-        // Vérification basique du format du token
-        if (token.length < 50) { // Un token JWT valide est généralement long
-            setError("Token invalide. Veuillez vous reconnecter.");
-            return false;
-        }
-
-        return true;
-    };
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData({ ...formData, [name]: value });
+        if (name === 'comment') {
+            const v = value && value.length > MAX_COMMENT ? value.slice(0, MAX_COMMENT) : value;
+            setFormData({ ...formData, [name]: v });
+            if (error && v.trim().length <= MAX_COMMENT) setError("");
+        } else {
+            setFormData({ ...formData, [name]: value });
+        }
     };
 
     const handleReconnect = () => {
-        // Rediriger vers la page de connexion
         navigate("/login");
     };
 
@@ -51,13 +65,13 @@ const AddReview = () => {
         setError("");
         setSuccess("");
 
-        if (!checkTokenValidity()) {
+        if (!isAuthenticated) {
+            setError("Vous devez être connecté pour ajouter un avis");
             return;
         }
 
         setLoading(true);
 
-        // Validation des données
         if (!formData.rating || formData.rating < 1 || formData.rating > 5) {
             setError("La note doit être entre 1 et 5");
             setLoading(false);
@@ -70,21 +84,30 @@ const AddReview = () => {
             return;
         }
 
+        if (formData.comment.trim().length > MAX_COMMENT) {
+            setError(`Le commentaire ne doit pas dépasser ${MAX_COMMENT} caractères`);
+            setLoading(false);
+            return;
+        }
+
         try {
-            const response = await axios.post(
-                "http://localhost:3003/reviews", 
+            console.log("Envoi de la review au service reviews...");
+            
+            const response = await axios.post("http://localhost:4000/api/reviews",
                 {
                     movie_id: parseInt(movieId),
                     rating: parseInt(formData.rating),
                     comment: formData.comment.trim()
                 },
                 {
+                    withCredentials: true,
                     headers: {
-                        Authorization: `Bearer ${token}`,
                         "Content-Type": "application/json"
                     }
                 }
             );
+            
+            console.log("Réponse du service reviews:", response.data);
             
             if (response.status === 201) {
                 setSuccess("Avis ajouté avec succès!");
@@ -93,15 +116,19 @@ const AddReview = () => {
                 }, 1500);
             }
         } catch (err) {
-            console.error("Erreur:", err.response?.data);
+            console.error("Erreur détaillée:", {
+                message: err.message,
+                response: err.response?.data,
+                status: err.response?.status,
+                config: err.config
+            });
             
-            if (err.response?.status === 401 || err.response?.data?.message === "Token invalide") {
-                setError("Session expirée. Veuillez vous reconnecter.");
-                // Supprimer le token invalide
-                localStorage.removeItem("token");
-                setToken(null);
+            if (err.response?.status === 401) {
+                setError("Le service de commentaires ne reçoit pas votre session. Vérifiez que vous êtes bien connecté.");
             } else if (err.response?.data?.message) {
                 setError(err.response.data.message);
+            } else if (err.code === 'ERR_NETWORK') {
+                setError("Impossible de se connecter au service de commentaires. Vérifiez qu'il est démarré.");
             } else {
                 setError("Une erreur est survenue. Veuillez réessayer.");
             }
@@ -110,8 +137,21 @@ const AddReview = () => {
         }
     };
 
-    // Si pas de token ou token invalide
-    if (!token) {
+    if (checkingAuth) {
+        return (
+            <div style={{ 
+                maxWidth: "500px", 
+                margin: "50px auto", 
+                padding: "20px", 
+                textAlign: "center"
+            }}>
+                <h2>Vérification de l'authentification...</h2>
+                <p>Veuillez patienter.</p>
+            </div>
+        );
+    }
+
+    if (!isAuthenticated) {
         return (
             <div style={{ 
                 maxWidth: "500px", 
@@ -155,7 +195,7 @@ const AddReview = () => {
                     border: "1px solid #ffcccc"
                 }}>
                     <strong>Erreur:</strong> {error}
-                    {(error.includes("Token") || error.includes("session")) && (
+                    {(error.includes("Token") || error.includes("session") || error.includes("non autorisée")) && (
                         <div style={{ marginTop: "10px" }}>
                             <button 
                                 onClick={handleReconnect}
@@ -222,6 +262,7 @@ const AddReview = () => {
                         name="comment"
                         rows="5"
                         value={formData.comment}
+                        maxLength={MAX_COMMENT}
                         onChange={handleChange}
                         required
                         disabled={loading}
@@ -235,6 +276,12 @@ const AddReview = () => {
                             fontSize: "16px"
                         }}
                     />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                        <small style={{ color: formData.comment.length > MAX_COMMENT ? 'red' : '#666' }}>{formData.comment.length}/{MAX_COMMENT}</small>
+                        {formData.comment.length > MAX_COMMENT && (
+                            <small style={{ color: 'red' }}>Trop long ({formData.comment.length - MAX_COMMENT} caractères en trop)</small>
+                        )}
+                    </div>
                 </div>
 
                 <div style={{ display: "flex", gap: "10px" }}>
