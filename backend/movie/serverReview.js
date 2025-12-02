@@ -146,12 +146,20 @@ function sanitizeHtml(text) {
     if (!text || typeof text !== 'string') return '';
     
     return text
-        .replace(/<script[^>]*>.*?<\/script>/gi, '')
+        .replace(/<script[^>]*>.*?<\/script>/gis, '') 
+        .replace(/<iframe[^>]*>.*?<\/iframe>/gis, '')
+        .replace(/<object[^>]*>.*?<\/object>/gis, '')
+        .replace(/<embed[^>]*>/gi, '')
+        .replace(/<link[^>]*>/gi, '')
+        .replace(/<style[^>]*>.*?<\/style>/gis, '')
         .replace(/<[^>]+>/g, '')
         .replace(/javascript:/gi, '')
         .replace(/on\w+\s*=/gi, '')
         .replace(/eval\s*\(/gi, '')
-        .replace(/[<>'"]/g, '');
+        .replace(/expression\s*\(/gi, '')
+        .replace(/vbscript:/gi, '')
+        .replace(/data:text\/html/gi, '')
+        .trim();
 }
 
 const validateReview = [
