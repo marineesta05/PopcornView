@@ -6,19 +6,40 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const validator = require('validator'); 
+const validator = require('validator');
 
 dotenv.config({ path: '../.env' });
 const db = require('../database.js');
 
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'replace-me-with-secret') {
-    console.error('ERREUR: JWT_SECRET invalide ou non défini');
-    process.exit(1);
+// ========== VALIDATION DU JWT_SECRET ==========
+function validateJwtSecret() {
+    const MIN_LENGTH = 32;
+    const secret = process.env.JWT_SECRET;
+    
+    if (!secret || secret === 'replace-me-with-secret') {
+        console.error('❌ ERREUR CRITIQUE: JWT_SECRET non défini ou invalide');
+        process.exit(1);
+    }
+    
+    if (secret.length < MIN_LENGTH) {
+        console.error(`❌ ERREUR: JWT_SECRET trop court (minimum ${MIN_LENGTH} caractères)`);
+        process.exit(1);
+    }
+    
+    const commonSecrets = ['secret', 'password', '123456', 'jwtsecret', 'changeme'];
+    if (commonSecrets.includes(secret.toLowerCase())) {
+        console.error('❌ ERREUR: JWT_SECRET trop commun');
+        process.exit(1);
+    }
+    
+    console.log('✓ JWT_SECRET validé');
 }
+
+validateJwtSecret();
 
 const app = express();
 
-
+// ========== MIDDLEWARES DE SÉCURITÉ ==========
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
@@ -35,7 +56,6 @@ app.use(helmet({
     noSniff: true
 }));
 
-
 app.use(cors({
     origin: ['http://localhost:3000', 'http://localhost:4000'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -45,16 +65,16 @@ app.use(cors({
 
 app.use(express.json({ limit: '10kb' }));
 
-
+// Rate limiting
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,  
-    max: 5,  
+    windowMs: 15 * 60 * 1000,
+    max: 5,
     skipSuccessfulRequests: true,
     standardHeaders: true,
     message: { error: 'Trop de tentatives, réessayez dans 15 minutes' }
 });
 
-
+// ========== FONCTIONS DE VALIDATION ==========
 function isValidEmail(email) {
     if (!email || typeof email !== 'string') return false;
     
@@ -66,7 +86,6 @@ function isValidEmail(email) {
     });
 }
 
-
 function isValidPassword(password) {
     if (!password || typeof password !== 'string') return false;
     
@@ -74,12 +93,11 @@ function isValidPassword(password) {
     
     if (pass.length < 12) return false;
     
-    
     const classes = [
-        /[a-z]/,  
-        /[A-Z]/,  
-        /\d/,     
-        /[@$!%*?&^#()\[\]{}<>~`_+=|:;.,\/\\-]/  
+        /[a-z]/,
+        /[A-Z]/,
+        /\d/,
+        /[@$!%*?&^#()\[\]{}<>~`_+=|:;.,\/\\-]/
     ];
     
     const matched = classes.reduce((count, regex) => 
@@ -89,43 +107,46 @@ function isValidPassword(password) {
     return matched >= 3;
 }
 
-
+// ========== ROUTES ==========
 app.post('/register', authLimiter, async (req, res) => {
     const { nom, prenom, email, password, role } = req.body;
 
     if (!nom || !prenom || !email || !password) {
         return res.status(400).json({ 
-            message: 'Tous les champs sont requis' 
+            message: 'Tous les champs sont requis',
+            code: 'MISSING_FIELDS'
         });
     }
 
     if (!isValidEmail(email)) {
         return res.status(400).json({ 
-            message: 'Format d\'email invalide' 
+            message: 'Format d\'email invalide',
+            code: 'INVALID_EMAIL'
         });
     }
 
     if (!isValidPassword(password)) {
         return res.status(400).json({ 
-            message: 'Le mot de passe doit contenir au moins 12 caractères et inclure au moins 3 types : majuscule, minuscule, chiffre, caractère spécial' 
+            message: 'Le mot de passe doit contenir au moins 12 caractères et inclure au moins 3 types : majuscule, minuscule, chiffre, caractère spécial',
+            code: 'WEAK_PASSWORD'
         });
     }
 
     try {
-    
         const [existingUsers] = await db.query(
-            'SELECT * FROM users WHERE email = ?', 
+            'SELECT id FROM users WHERE email = ?', 
             [email]
         );
         
         if (existingUsers.length > 0) {
             return res.status(409).json({ 
-                message: 'Cet email est déjà utilisé' 
+                message: 'Cet email est déjà utilisé',
+                code: 'EMAIL_EXISTS'
             });
         }
 
         const hashedPassword = await bcrypt.hash(password, 12);
-        const userRole = role || 'user';
+        const userRole = role === 'admin' ? 'admin' : 'user';
 
         const [result] = await db.query(
             'INSERT INTO users (nom, prenom, email, password, role) VALUES (?, ?, ?, ?, ?)',
@@ -133,17 +154,21 @@ app.post('/register', authLimiter, async (req, res) => {
         );
 
         const token = jwt.sign(
-            { userId: result.insertId, role: userRole }, 
+            { 
+                id: result.insertId,
+                userId: result.insertId,
+                role: userRole,
+                email: email
+            }, 
             process.env.JWT_SECRET, 
             { expiresIn: '12h' }
         );
 
-        
         res.cookie('token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 30 * 60 * 1000 
+            maxAge: 12 * 60 * 60 * 1000
         });
 
         const csrf = crypto.randomBytes(32).toString('hex');
@@ -170,25 +195,23 @@ app.post('/register', authLimiter, async (req, res) => {
     } catch (error) {
         console.error('Register error:', error);
         res.status(500).json({ 
-            message: 'Erreur serveur', 
-            error: error.message 
+            message: 'Erreur serveur',
+            code: 'SERVER_ERROR'
         });
     }
 });
 
-
 app.post('/login', authLimiter, async (req, res) => {
-    console.log('=== LOGIN ATTEMPT ===');
-    
     const { email, password } = req.body;
+    
     if (!email || !password) {
         return res.status(400).json({ 
-            message: "Email et mot de passe requis" 
+            message: "Email et mot de passe requis",
+            code: 'MISSING_CREDENTIALS'
         });
     }
 
     try {
-        
         const [results] = await db.query(
             'SELECT * FROM users WHERE email = ?', 
             [email]
@@ -196,7 +219,8 @@ app.post('/login', authLimiter, async (req, res) => {
 
         if (results.length === 0) {
             return res.status(401).json({ 
-                message: "Identifiants invalides" 
+                message: "Identifiants invalides",
+                code: 'INVALID_CREDENTIALS'
             });
         }
 
@@ -206,12 +230,18 @@ app.post('/login', authLimiter, async (req, res) => {
         
         if (!isPasswordValid) {
             return res.status(401).json({ 
-                message: "Identifiants invalides" 
+                message: "Identifiants invalides",
+                code: 'INVALID_CREDENTIALS'
             });
         }
 
         const token = jwt.sign(
-            { userId: user.id, role: user.role },
+            { 
+                id: user.id,
+                userId: user.id,
+                role: user.role,
+                email: user.email
+            },
             process.env.JWT_SECRET,
             { expiresIn: "12h" }
         );
@@ -220,7 +250,7 @@ app.post('/login', authLimiter, async (req, res) => {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 30 * 60 * 1000
+            maxAge: 12 * 60 * 60 * 1000
         });
 
         const csrf = crypto.randomBytes(32).toString('hex');
@@ -246,37 +276,43 @@ app.post('/login', authLimiter, async (req, res) => {
     } catch (error) {
         console.error('Login error:', error);
         return res.status(500).json({ 
-            message: "Erreur serveur", 
-            error: error.message 
+            message: "Erreur serveur",
+            code: 'SERVER_ERROR'
         });
     }
 });
-
 
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
         service: 'user-auth',
-        jwt_configured: !!process.env.JWT_SECRET
+        jwt_configured: !!process.env.JWT_SECRET,
+        timestamp: new Date().toISOString()
     });
 });
 
-
+// 404 Handler
 app.use((req, res) => {
-    res.status(404).json({ error: 'Route non trouvée' });
+    res.status(404).json({ 
+        error: 'Route non trouvée',
+        code: 'NOT_FOUND'
+    });
 });
 
+// Error Handler
 app.use((err, req, res, next) => {
     console.error('Server error:', err);
     res.status(500).json({ 
-        error: 'Erreur serveur interne'
+        error: 'Erreur serveur interne',
+        code: 'INTERNAL_ERROR'
     });
 });
-
 
 const PORT = process.env.SERVER_PORT || 3001;
 
 app.listen(PORT, () => {
-    console.log(` User Auth Service sur http://localhost:${PORT}`);
-    console.log(` Security: Helmet, Rate Limiting, Validation enabled`);
+    console.log(`🚀 User Auth Service sur http://localhost:${PORT}`);
+    console.log(`🔒 Security: Helmet, Rate Limiting, Validation enabled`);
 });
+
+module.exports = app;

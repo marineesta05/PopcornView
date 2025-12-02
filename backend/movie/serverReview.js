@@ -3,23 +3,45 @@ const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const http = require('http');
-const helmet = require('helmet'); 
-const rateLimit = require('express-rate-limit'); 
-const { body, param, validationResult } = require('express-validator'); 
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const { body, param, validationResult } = require('express-validator');
 const { Server } = require("socket.io");
 
 dotenv.config({ path: '../.env' });
 
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'replace-me-with-secret') {
-    console.error(' ERREUR: JWT_SECRET invalide');
-    process.exit(1);
+// ========== VALIDATION JWT_SECRET ==========
+function validateJwtSecret() {
+    const MIN_LENGTH = 32;
+    const secret = process.env.JWT_SECRET;
+    
+    if (!secret || secret === 'replace-me-with-secret') {
+        console.error('❌ ERREUR: JWT_SECRET invalide');
+        process.exit(1);
+    }
+    
+    if (secret.length < MIN_LENGTH) {
+        console.error(`❌ ERREUR: JWT_SECRET trop court (minimum ${MIN_LENGTH})`);
+        process.exit(1);
+    }
+    
+    const commonSecrets = ['secret', 'password', '123456', 'jwtsecret', 'changeme'];
+    if (commonSecrets.includes(secret.toLowerCase())) {
+        console.error('❌ ERREUR: JWT_SECRET trop commun');
+        process.exit(1);
+    }
+    
+    console.log('✓ JWT_SECRET validé');
 }
+
+validateJwtSecret();
 
 const sql = require('../database');
 
 const app = express();
 const server = http.createServer(app);
 
+// ========== SÉCURITÉ HELMET ==========
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
@@ -39,14 +61,15 @@ app.use(helmet({
     xssFilter: true
 }));
 
+// ========== CORS SÉCURISÉ ==========
+const allowedOrigins = [
+    process.env.FRONTEND_URL || 'http://localhost:3000',
+    'http://localhost:3000',
+    'http://localhost:4000'
+];
 
 app.use(cors({
     origin: function(origin, callback) {
-        const allowedOrigins = [
-            process.env.FRONTEND_URL || 'http://localhost:3000',
-            'http://localhost:3000'
-        ];
-        
         if (!origin || allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
@@ -60,10 +83,10 @@ app.use(cors({
 
 app.use(express.json({ limit: '10kb' }));
 
-
-const limiter = rateLimit({
+// ========== RATE LIMITING ==========
+const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 50,  
+    max: 50,
     standardHeaders: true,
     legacyHeaders: false,
     message: { message: 'Trop de requêtes, réessayez plus tard' }
@@ -71,18 +94,18 @@ const limiter = rateLimit({
 
 const createReviewLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
-    max: 5,  
+    max: 5,
     standardHeaders: true,
     skipSuccessfulRequests: false,
     message: { message: 'Vous avez créé trop d\'avis récemment' }
 });
 
-app.use(limiter);
+app.use(generalLimiter);
 
-
+// ========== SOCKET.IO SÉCURISÉ ==========
 const io = new Server(server, {
     cors: {
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        origin: allowedOrigins,
         methods: ["GET", "POST"],
         credentials: true
     },
@@ -97,21 +120,24 @@ io.use((socket, next) => {
     }
     
     jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-        if (err) return next(new Error('Authentication error'));
-        socket.userId = decoded.id;
+        if (err) {
+            console.warn('[SECURITY] Invalid socket auth attempt');
+            return next(new Error('Authentication error'));
+        }
+        socket.userId = decoded.id || decoded.userId;
         socket.userRole = decoded.role;
         next();
     });
 });
 
 io.on("connection", (socket) => {
-    console.log(` Client authentifié: ${socket.userId}`);
+    console.log(`✓ Client authentifié: ${socket.userId}`);
     socket.on("disconnect", () => {
-        console.log(" Client déconnecté:", socket.id);
+        console.log("✓ Client déconnecté:", socket.id);
     });
 });
 
-
+// ========== MIDDLEWARE AUTH ==========
 function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     let token = authHeader && authHeader.split(' ')[1];
@@ -141,38 +167,38 @@ function authenticateToken(req, res, next) {
     });
 }
 
-
+// ========== SANITIZATION ==========
 function sanitizeHtml(text, maxLength = 10000) {
-    // Validation d'entrée
     if (typeof text !== 'string') {
         return '';
     }
     
-    if (text.length > maxLength) {
-        text = text.substring(0, maxLength);
-    }
+    let sanitized = text.substring(0, maxLength);
     
+    // Supprimer les balises dangereuses
     const dangerousPatterns = [
-        /<script\b[^>]*>([\s\S]{0,5000})?<\/script>/gi,
-        /<iframe\b[^>]*>([\s\S]{0,5000})?<\/iframe>/gi,
-        /<object\b[^>]*>([\s\S]{0,5000})?<\/object>/gi,
-        
-        /<\s*(embed|link|style|meta)\b[^>]*>/gi,
-        
-        /\s+on\w+\s*=\s*["'][^"']{0,100}["']/gi,
-        /\s+on\w+\s*=\s*[^\s>]{0,100}/gi,
-        
-        /(href|src|action)\s*=\s*["']\s*(javascript|vbscript|data):[^"']{0,200}["']/gi
+        /<script\b[^>]*>[\s\S]*?<\/script>/gi,
+        /<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi,
+        /<object\b[^>]*>[\s\S]*?<\/object>/gi,
+        /<embed\b[^>]*>/gi,
+        /<link\b[^>]*>/gi,
+        /<style\b[^>]*>[\s\S]*?<\/style>/gi,
+        /<meta\b[^>]*>/gi,
+        /\s+on\w+\s*=\s*["'][^"']*["']/gi,
+        /\s+on\w+\s*=\s*[^\s>]*/gi,
+        /javascript:/gi,
+        /vbscript:/gi,
+        /data:text\/html/gi
     ];
-    
-    let sanitized = text;
     
     dangerousPatterns.forEach(pattern => {
         sanitized = sanitized.replace(pattern, '');
     });
     
-    sanitized = sanitized.replace(/<\/?[a-zA-Z][^>]{0,100}>/g, '');
+    // Supprimer toutes les balises HTML
+    sanitized = sanitized.replace(/<[^>]*>/g, '');
     
+    // Encoder les entités HTML
     const htmlEntities = {
         '&': '&amp;',
         '<': '&lt;',
@@ -182,17 +208,15 @@ function sanitizeHtml(text, maxLength = 10000) {
         '/': '&#x2F;'
     };
     
-    sanitized = sanitized.replace(/[&<>"']/g, (match) => {
-        return htmlEntities[match] || match;
-    });
+    sanitized = sanitized.replace(/[&<>"'/]/g, (match) => htmlEntities[match] || match);
     
+    // Supprimer les espaces multiples
     sanitized = sanitized.replace(/\s{2,}/g, ' ');
     
     return sanitized.trim();
 }
 
-module.exports = { sanitizeHtml };
-
+// ========== VALIDATEURS ==========
 const validateReview = [
     body('movie_id')
         .isInt({ min: 1 })
@@ -206,9 +230,7 @@ const validateReview = [
         .trim()
         .isLength({ min: 1, max: 1000 })
         .withMessage('Le commentaire doit contenir entre 1 et 1000 caractères')
-        .customSanitizer(value => {
-            return sanitizeHtml(value);
-        })
+        .customSanitizer(value => sanitizeHtml(value))
 ];
 
 const validateReviewUpdate = [
@@ -223,11 +245,16 @@ const validateReviewUpdate = [
         .trim()
         .isLength({ min: 1, max: 1000 })
         .withMessage('Le commentaire doit contenir entre 1 et 1000 caractères')
-        .customSanitizer(value => {
-            return sanitizeHtml(value);
-        })
+        .customSanitizer(value => sanitizeHtml(value))
 ];
 
+const validateMovieId = [
+    param('movie_id').isInt({ min: 1 }).toInt()
+];
+
+const validateReviewId = [
+    param('id').isInt({ min: 1 }).toInt()
+];
 
 function handleValidationErrors(req, res, next) {
     const errors = validationResult(req);
@@ -240,10 +267,12 @@ function handleValidationErrors(req, res, next) {
     next();
 }
 
+// ========== ROUTES ==========
 
+// POST: Créer une review
 app.post('/reviews', 
     authenticateToken, 
-    createReviewLimiter,  
+    createReviewLimiter,
     validateReview, 
     handleValidationErrors, 
     async (req, res) => {
@@ -251,26 +280,23 @@ app.post('/reviews',
         const user_id = req.userId;
 
         try {
-            
             const [existingReview] = await sql.query(
                 'SELECT id FROM avis WHERE movie_id = ? AND user_id = ?',
                 [movie_id, user_id]
             );
 
             if (existingReview.length > 0) {
-                return res.status(400).json({ 
+                return res.status(409).json({ 
                     message: 'Vous avez déjà posté un avis pour ce film',
                     code: 'DUPLICATE_REVIEW'
                 });
             }
 
-            
             const [result] = await sql.query(
                 'INSERT INTO avis (movie_id, user_id, note, commentaire) VALUES (?, ?, ?, ?)',
                 [movie_id, user_id, rating, comment]
             );
 
-            
             const [newReview] = await sql.query(
                 `SELECT a.id, a.movie_id, a.user_id, a.note as rating, 
                         a.commentaire as comment, u.email 
@@ -296,7 +322,7 @@ app.post('/reviews',
     }
 );
 
-
+// GET: Toutes les reviews
 app.get('/reviews', async (req, res) => {
     try {
         const [result] = await sql.query(
@@ -317,9 +343,9 @@ app.get('/reviews', async (req, res) => {
     }
 });
 
-
+// GET: Reviews d'un film
 app.get('/reviews/movie/:movie_id', 
-    param('movie_id').isInt({ min: 1 }).toInt(),
+    validateMovieId,
     handleValidationErrors,
     async (req, res) => {
         const { movie_id } = req.params;
@@ -346,7 +372,7 @@ app.get('/reviews/movie/:movie_id',
     }
 );
 
-
+// PUT: Modifier une review
 app.put('/reviews/:id', 
     authenticateToken,
     validateReviewUpdate,
@@ -369,7 +395,7 @@ app.put('/reviews/:id',
                 });
             }
 
-            
+            // Protection IDOR
             if (currentReview[0].user_id !== user_id) {
                 console.warn(`[SECURITY] IDOR attempt: User ${user_id} tried to modify review ${id}`);
                 return res.status(403).json({ 
@@ -414,10 +440,10 @@ app.put('/reviews/:id',
     }
 );
 
-
+// DELETE: Supprimer une review
 app.delete('/reviews/:id', 
     authenticateToken,
-    param('id').isInt({ min: 1 }).toInt(),
+    validateReviewId,
     handleValidationErrors,
     async (req, res) => {
         const { id } = req.params;
@@ -437,6 +463,7 @@ app.delete('/reviews/:id',
                 });
             }
 
+            // Protection IDOR - seul l'auteur ou un admin peut supprimer
             if (reviewToDelete[0].user_id !== user_id && userRole !== 'admin') {
                 console.warn(`[SECURITY] Unauthorized delete attempt by user ${user_id} on review ${id}`);
                 return res.status(403).json({ 
@@ -448,7 +475,7 @@ app.delete('/reviews/:id',
             await sql.query('DELETE FROM avis WHERE id = ?', [id]);
             
             console.log(`[AUDIT] ${userRole === 'admin' ? 'Admin' : 'User'} ${user_id} deleted review ${id}`);
-            io.emit('reviewDeleted', { id: parseInt(id) });
+            io.emit('reviewDeleted', { id: parseInt(id, 10) });
             
             res.status(200).json({ 
                 message: 'Avis supprimé',
@@ -464,7 +491,17 @@ app.delete('/reviews/:id',
     }
 );
 
+// GET: Health check
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'ok',
+        service: 'reviews',
+        jwt_configured: !!process.env.JWT_SECRET,
+        timestamp: new Date().toISOString()
+    });
+});
 
+// 404 Handler
 app.use((req, res) => {
     res.status(404).json({ 
         message: 'Route non trouvée',
@@ -472,17 +509,32 @@ app.use((req, res) => {
     });
 });
 
+// Error Handler
 app.use((err, req, res, next) => {
     console.error('Erreur globale:', err.stack);
-    res.status(500).json({ 
+    
+    const response = {
         message: 'Erreur serveur',
         code: 'SERVER_ERROR'
-    });
+    };
+    
+    if (process.env.NODE_ENV === 'development') {
+        response.details = err.message;
+    }
+    
+    res.status(500).json(response);
 });
 
-
+// ========== DÉMARRAGE SERVEUR ==========
 const PORT = process.env.REVIEW_SERVICE_PORT || 3003;
+
 server.listen(PORT, () => {
-    console.log(` Review Service sur le port ${PORT}`);
-    console.log(` Security: Helmet, Rate Limiting, XSS Protection enabled`);
+    console.log(`
+🚀 Review Service démarré sur: http://localhost:${PORT}
+🔒 Security: Helmet, Rate Limiting, XSS Protection enabled
+✓ JWT Auth: Configuré
+✓ Socket.IO: Activé
+    `);
 });
+
+module.exports = { app, server };

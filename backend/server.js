@@ -1,30 +1,59 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'replace-me-with-secret') {
-    console.error(' ERREUR CRITIQUE: JWT_SECRET invalide ou non défini');
-    process.exit(1);
-}
+// ========== VALIDATION DES SECRETS ==========
+const validateSecrets = () => {
+    const MIN_JWT_SECRET_LENGTH = 32;
+    
+    if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'replace-me-with-secret') {
+        console.error('❌ ERREUR CRITIQUE: JWT_SECRET invalide ou non défini');
+        process.exit(1);
+    }
+    
+    if (process.env.JWT_SECRET.length < MIN_JWT_SECRET_LENGTH) {
+        console.error(`❌ ERREUR: JWT_SECRET trop court (${process.env.JWT_SECRET.length} < ${MIN_JWT_SECRET_LENGTH})`);
+        process.exit(1);
+    }
+    
+    const commonSecrets = ['secret', 'password', '123456', 'jwtsecret', 'changeme'];
+    if (commonSecrets.includes(process.env.JWT_SECRET.toLowerCase())) {
+        console.error('❌ ERREUR: JWT_SECRET trop commun');
+        process.exit(1);
+    }
+    
+    console.log('✓ JWT_SECRET validé');
+};
+validateSecrets();
 
+// ========== IMPORTS ==========
 const express = require('express');
 const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
-const fs = require('fs');
-const fsp = require('fs').promises;
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const validator = require('validator');
 
-try {
-  if (typeof fetch === 'undefined') global.fetch = require('node-fetch');
-} catch (e) {}
+// ========== INITIALISATION FETCH ==========
+let fetch;
+if (typeof globalThis.fetch === 'undefined') {
+    try {
+        fetch = require('node-fetch');
+    } catch (e) {
+        console.error('❌ ERREUR: node-fetch requis. Installez: npm install node-fetch@2');
+        process.exit(1);
+    }
+} else {
+    fetch = globalThis.fetch;
+}
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// ========== MIDDLEWARES DE SÉCURITÉ ==========
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
@@ -35,16 +64,17 @@ app.use(helmet({
             connectSrc: ["'self'", "https://api.themoviedb.org"]
         }
     },
-    hsts: {
+    hsts: process.env.NODE_ENV === 'production' ? {
         maxAge: 31536000,
         includeSubDomains: true,
         preload: true
-    },
+    } : false,
     frameguard: { action: 'deny' },
     noSniff: true,
     xssFilter: true
 }));
 
+// Rate limiting
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 100,
@@ -63,10 +93,28 @@ const authLimiter = rateLimit({
 
 app.use('/api/', generalLimiter);
 app.use(cookieParser());
-app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
-app.use(express.json({ limit: '10kb' })); 
 
+// CORS sécurisé
+const allowedOrigins = process.env.NODE_ENV === 'production' 
+    ? [process.env.FRONTEND_URL || 'http://localhost:3000']
+    : ['http://localhost:3000', 'http://localhost:3001'];
 
+app.use(cors({ 
+    origin: function(origin, callback) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token']
+}));
+
+app.use(express.json({ limit: '10kb' }));
+
+// ========== CONFIGURATION BASE DE DONNÉES ==========
 const DB_CONFIG = {
     host: process.env.DB_HOST || '127.0.0.1',
     user: process.env.DB_USER || 'root',
@@ -82,16 +130,14 @@ const DB_CONFIG = {
 };
 
 let pool;
-async function initDb() {
-    pool = await mysql.createPool(DB_CONFIG);
-}
 
+// ========== GESTION CSRF ==========
 const csrfTokens = new Map();
 
 setInterval(() => {
     const now = Date.now();
     for (const [userId, data] of csrfTokens.entries()) {
-        if (now - data.timestamp > 3600000) { 
+        if (now - data.timestamp > 3600000) {
             csrfTokens.delete(userId);
         }
     }
@@ -108,17 +154,66 @@ function verifyCsrf(req, res, next) {
     const headerToken = req.headers['x-csrf-token'] || req.headers['x-xsrf-token'];
     
     if (!cookieToken || !headerToken || cookieToken !== headerToken) {
-        return res.status(403).json({ error: 'Invalid CSRF token' });
+        console.warn('[SECURITY] Invalid CSRF token attempt');
+        return res.status(403).json({ 
+            error: 'Invalid CSRF token',
+            code: 'INVALID_CSRF'
+        });
     }
     
     if (req.user?.id) {
         const stored = csrfTokens.get(req.user.id);
         if (!stored || stored.token !== cookieToken) {
-            return res.status(403).json({ error: 'CSRF token mismatch' });
+            console.warn(`[SECURITY] CSRF token mismatch for user ${req.user.id}`);
+            return res.status(403).json({ 
+                error: 'CSRF token mismatch',
+                code: 'CSRF_MISMATCH'
+            });
         }
     }
     
     next();
+}
+
+// ========== FONCTIONS DE VALIDATION ==========
+function validatePassword(password) {
+    if (!password || typeof password !== 'string') {
+        return { valid: false, error: 'Mot de passe requis', code: 'PASSWORD_REQUIRED' };
+    }
+    
+    const pass = String(password);
+    if (pass.length < 12) {
+        return { valid: false, error: 'Minimum 12 caractères requis', code: 'PASSWORD_TOO_SHORT' };
+    }
+    
+    const classes = [
+        /[a-z]/,
+        /[A-Z]/,
+        /\d/,
+        /[@$!%*?&^#()\[\]{}<>~`_+=|:;.,\/\\-]/
+    ];
+    
+    const matched = classes.reduce((count, regex) => count + (regex.test(pass) ? 1 : 0), 0);
+    
+    if (matched < 3) {
+        return { 
+            valid: false, 
+            error: 'Doit inclure au moins 3 types: majuscule, minuscule, chiffre, caractère spécial',
+            code: 'PASSWORD_WEAK'
+        };
+    }
+    
+    return { valid: true };
+}
+
+function isValidEmail(email) {
+    if (!email || typeof email !== 'string') return false;
+    return validator.isEmail(email, {
+        allow_display_name: false,
+        require_tld: true,
+        allow_utf8_local_part: false,
+        blacklisted_chars: '<>"\''
+    });
 }
 
 function signToken(payload) {
@@ -145,89 +240,121 @@ async function getUserById(id) {
     return rows[0];
 }
 
+// ========== MIDDLEWARES D'AUTHENTIFICATION ==========
 async function authenticateToken(req, res, next) {
     try {
         const token = (req.cookies && req.cookies.token) || 
-                      (req.headers.authorization || '').replace(/^Bearer\s+/, '');
+                     (req.headers.authorization || '').replace(/^Bearer\s+/, '');
         
-        if (!token) return res.status(401).json({ error: 'Missing token' });
+        if (!token) {
+            return res.status(401).json({ 
+                error: 'Token manquant',
+                code: 'TOKEN_MISSING'
+            });
+        }
         
         const secret = process.env.JWT_SECRET;
         if (!secret) {
-            throw new Error('JWT_SECRET not configured');
+            throw new Error('JWT_SECRET non configuré');
         }
         
         const payload = jwt.verify(token, secret);
-        const user = await getUserById(payload.id);
+        const userId = parseInt(payload.id || payload.userId);
+        
+        if (isNaN(userId) || userId <= 0) {
+            return res.status(401).json({ 
+                error: 'Token invalide',
+                code: 'TOKEN_INVALID'
+            });
+        }
+        
+        const user = await getUserById(userId);
         
         if (!user) {
-            return res.status(401).json({ error: 'Invalid token (user not found)' });
+            return res.status(401).json({ 
+                error: 'Utilisateur non trouvé',
+                code: 'USER_NOT_FOUND'
+            });
         }
         
         req.user = user;
         next();
     } catch (err) {
         console.error('Auth error:', err.message);
-        return res.status(401).json({ error: 'Invalid token' });
+        
+        if (err.name === 'TokenExpiredError') {
+            return res.status(401).json({ 
+                error: 'Token expiré',
+                code: 'TOKEN_EXPIRED'
+            });
+        }
+        
+        if (err.name === 'JsonWebTokenError') {
+            return res.status(401).json({ 
+                error: 'Token invalide',
+                code: 'TOKEN_INVALID'
+            });
+        }
+        
+        return res.status(500).json({ 
+            error: 'Erreur d\'authentification',
+            code: 'AUTH_ERROR'
+        });
     }
 }
 
 function requireAdmin(req, res, next) {
     if (!req.user || req.user.role !== 'admin') {
         console.warn(`[SECURITY] Unauthorized admin access attempt by user ${req.user?.id}`);
-        return res.status(403).json({ error: 'Admin only' });
+        return res.status(403).json({ 
+            error: 'Accès réservé aux administrateurs',
+            code: 'ADMIN_REQUIRED'
+        });
     }
     next();
 }
 
-function validatePassword(password) {
-    if (!password || typeof password !== 'string') {
-        return { valid: false, error: 'Mot de passe requis' };
-    }
-    
-    const pass = String(password);
-    if (pass.length < 12) {
-        return { valid: false, error: 'Minimum 12 caractères requis' };
-    }
-    
-    const classes = [/[a-z]/, /[A-Z]/, /\d/, /[@$!%*?&^#()\[\]{}<>~`_+=|:;.,\/\\-]/];
-    const matched = classes.reduce((c, rx) => c + (rx.test(pass) ? 1 : 0), 0);
-    
-    if (matched < 3) {
-        return { 
-            valid: false, 
-            error: 'Doit inclure 3 types: majuscule, minuscule, chiffre, spécial' 
-        };
-    }
-    
-    return { valid: true };
-}
-
+// ========== ROUTES D'AUTHENTIFICATION ==========
 app.post('/api/auth/register', authLimiter, async (req, res) => {
     try {
-        const { nom, prenom, email, password, role } = req.body || {};
+        const { nom, prenom, email, password, role = 'user' } = req.body || {};
         
         if (!email || !password || !nom || !prenom) {
             return res.status(400).json({ 
-                error: 'nom, prenom, email et password requis' 
+                error: 'Nom, prénom, email et mot de passe requis',
+                code: 'MISSING_FIELDS'
             });
         }
         
-        const existing = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
-        if (existing && existing[0] && existing[0].length > 0) {
-            return res.status(409).json({ error: 'Cet email est déjà utilisé' });
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ 
+                error: 'Format d\'email invalide',
+                code: 'INVALID_EMAIL'
+            });
+        }
+        
+        const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+        if (existing && existing.length > 0) {
+            return res.status(409).json({ 
+                error: 'Cet email est déjà utilisé',
+                code: 'EMAIL_EXISTS'
+            });
         }
         
         const pwValidation = validatePassword(password);
         if (!pwValidation.valid) {
-            return res.status(400).json({ error: pwValidation.error });
+            return res.status(400).json({ 
+                error: pwValidation.error,
+                code: pwValidation.code
+            });
         }
         
         const hash = await bcrypt.hash(password, 12);
+        const userRole = role === 'admin' ? 'admin' : 'user';
         
         const [result] = await pool.query(
             'INSERT INTO users (nom, prenom, email, role, password) VALUES (?, ?, ?, ?, ?)',
-            [nom, prenom, email, role || 'user', hash]
+            [nom, prenom, email, userRole, hash]
         );
         
         const user = { 
@@ -235,22 +362,47 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
             nom, 
             prenom, 
             email, 
-            role: role || 'user' 
+            role: userRole
         };
         
-        const csrf = generateCsrfToken();
-        csrfTokens.set(user.id, { token: csrf, timestamp: Date.now() });
-        
-        res.cookie('XSRF-TOKEN', csrf, { 
-            httpOnly: false, 
-            secure: process.env.NODE_ENV === 'production', 
-            sameSite: 'strict' 
+        const token = signToken({ 
+            id: user.id,
+            userId: user.id,
+            role: userRole,
+            email: email
         });
         
-        res.status(201).json({ ok: true, user });
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            path: '/',
+            maxAge: 12 * 60 * 60 * 1000
+        });
+        
+        const csrfToken = generateCsrfToken();
+        csrfTokens.set(user.id, { token: csrfToken, timestamp: Date.now() });
+        
+        res.cookie('XSRF-TOKEN', csrfToken, { 
+            httpOnly: false,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict'
+        });
+        
+        console.log(`[AUDIT] User registered: ${user.id} (${user.email})`);
+        
+        res.status(201).json({ 
+            ok: true,
+            token,
+            user,
+            code: 'REGISTRATION_SUCCESS'
+        });
     } catch (err) {
         console.error('Register error:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
+        res.status(500).json({ 
+            error: 'Erreur serveur lors de l\'inscription',
+            code: 'REGISTRATION_ERROR'
+        });
     }
 });
 
@@ -259,135 +411,217 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         const { email, password } = req.body || {};
         
         if (!email || !password) {
-            return res.status(400).json({ error: 'Email et password requis' });
+            return res.status(400).json({ 
+                error: 'Email et mot de passe requis',
+                code: 'MISSING_CREDENTIALS'
+            });
         }
         
         const user = await getUserByEmail(email);
         if (!user) {
-            return res.status(401).json({ error: 'Identifiants invalides' });
+            return res.status(401).json({ 
+                error: 'Identifiants invalides',
+                code: 'INVALID_CREDENTIALS'
+            });
         }
         
         const ok = await bcrypt.compare(password, user.password);
         if (!ok) {
-            return res.status(401).json({ error: 'Identifiants invalides' });
+            return res.status(401).json({ 
+                error: 'Identifiants invalides',
+                code: 'INVALID_CREDENTIALS'
+            });
         }
         
-        const token = signToken({ id: user.id, role: user.role });
+        const token = signToken({ 
+            id: user.id,
+            userId: user.id,
+            role: user.role,
+            email: user.email
+        });
         
         res.cookie('token', token, {
             httpOnly: true,
-            secure: false,
-            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
             path: '/',
-            maxAge: 30 * 60 * 1000 
+            maxAge: 12 * 60 * 60 * 1000
         });
         
-        const csrf = generateCsrfToken();
-        csrfTokens.set(user.id, { token: csrf, timestamp: Date.now() });
+        const csrfToken = generateCsrfToken();
+        csrfTokens.set(user.id, { token: csrfToken, timestamp: Date.now() });
         
-        res.cookie('XSRF-TOKEN', csrf, { 
-            httpOnly: false, 
-            secure: process.env.NODE_ENV === 'production', 
-            sameSite: 'strict' 
+        res.cookie('XSRF-TOKEN', csrfToken, { 
+            httpOnly: false,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict'
         });
         
-        res.json({ ok: true, id: user.id, role: user.role });
+        console.log(`[AUDIT] User logged in: ${user.id} (${user.email})`);
+        
+        res.json({ 
+            ok: true,
+            token,
+            user: {
+                id: user.id,
+                nom: user.nom,
+                prenom: user.prenom,
+                email: user.email,
+                role: user.role
+            },
+            code: 'LOGIN_SUCCESS'
+        });
     } catch (err) {
         console.error('Login error:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
+        res.status(500).json({ 
+            error: 'Erreur serveur lors de la connexion',
+            code: 'LOGIN_ERROR'
+        });
     }
 });
 
-
 app.post('/api/auth/logout', authenticateToken, (req, res) => {
-  
     csrfTokens.delete(req.user.id);
     
     res.clearCookie('token');
     res.clearCookie('XSRF-TOKEN');
-    res.json({ ok: true });
+    
+    res.json({ 
+        ok: true,
+        code: 'LOGOUT_SUCCESS'
+    });
 });
 
 app.get('/api/auth/me', authenticateToken, (req, res) => {
     res.json({
-    user: req.user,
-    token: req.cookies.token
-});
+        user: req.user,
+        code: 'USER_INFO'
+    });
 });
 
+// ========== ROUTES UTILISATEURS ==========
 app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const [rows] = await pool.query(
-            'SELECT id, nom, prenom, email, role FROM users ORDER BY id DESC'
+            'SELECT id, nom, prenom, email, role, created_at FROM users ORDER BY id DESC'
         );
-        res.json(rows || []);
+        res.json({ 
+            users: rows || [],
+            code: 'USERS_LIST'
+        });
     } catch (err) {
         console.error('GET /api/users error:', err);
-        res.status(500).json({ error: 'Erreur chargement utilisateurs' });
+        res.status(500).json({ 
+            error: 'Erreur chargement utilisateurs',
+            code: 'USERS_LOAD_ERROR'
+        });
     }
 });
 
 app.post('/api/users', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
     try {
-        const { nom, prenom, email, password, role } = req.body || {};
+        const { nom, prenom, email, password, role = 'user' } = req.body || {};
         
         if (!nom || !prenom || !email || !password) {
             return res.status(400).json({ 
-                error: 'Tous les champs sont requis' 
+                error: 'Tous les champs sont requis',
+                code: 'MISSING_FIELDS'
+            });
+        }
+        
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ 
+                error: 'Format d\'email invalide',
+                code: 'INVALID_EMAIL'
             });
         }
         
         const [exists] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
         if (exists && exists.length > 0) {
-            return res.status(409).json({ error: 'Email déjà utilisé' });
+            return res.status(409).json({ 
+                error: 'Email déjà utilisé',
+                code: 'EMAIL_EXISTS'
+            });
         }
         
         const pwValidation = validatePassword(password);
         if (!pwValidation.valid) {
-            return res.status(400).json({ error: pwValidation.error });
+            return res.status(400).json({ 
+                error: pwValidation.error,
+                code: pwValidation.code
+            });
         }
         
         const hash = await bcrypt.hash(password, 12);
-        const [r] = await pool.query(
+        const userRole = role === 'admin' ? 'admin' : 'user';
+        
+        const [result] = await pool.query(
             'INSERT INTO users (nom, prenom, email, role, password) VALUES (?, ?, ?, ?, ?)',
-            [nom, prenom, email, role || 'user', hash]
+            [nom, prenom, email, userRole, hash]
         );
         
-        console.log(`[AUDIT] Admin ${req.user.id} created user ${r.insertId}`);
+        console.log(`[AUDIT] Admin ${req.user.id} created user ${result.insertId}`);
         
         res.status(201).json({ 
-            id: r.insertId, 
-            nom, 
-            prenom, 
-            email, 
-            role: role || 'user' 
+            id: result.insertId,
+            nom,
+            prenom,
+            email,
+            role: userRole,
+            code: 'USER_CREATED'
         });
     } catch (err) {
         console.error('POST /api/users error:', err);
-        res.status(500).json({ error: 'Erreur création utilisateur' });
+        res.status(500).json({ 
+            error: 'Erreur création utilisateur',
+            code: 'USER_CREATE_ERROR'
+        });
     }
 });
 
 app.put('/api/users/:id', authenticateToken, verifyCsrf, async (req, res) => {
     try {
-        const id = req.params.id;
+        const userId = parseInt(req.params.id);
         const { nom, prenom, email, password, role } = req.body || {};
         
-        if (!req.user || (req.user.id !== Number(id) && req.user.role !== 'admin')) {
-            console.warn(`[SECURITY] IDOR attempt: User ${req.user?.id} tried to modify user ${id}`);
-            return res.status(403).json({ error: 'Accès interdit' });
+        if (isNaN(userId) || userId <= 0) {
+            return res.status(400).json({ 
+                error: 'ID utilisateur invalide',
+                code: 'INVALID_USER_ID'
+            });
         }
         
-        if (req.user.role === 'admin' && req.user.id === Number(id) && role && role !== req.user.role) {
+        // Protection IDOR
+        if (req.user.id !== userId && req.user.role !== 'admin') {
+            console.warn(`[SECURITY] IDOR attempt: User ${req.user.id} tried to modify user ${userId}`);
             return res.status(403).json({ 
-                error: 'Vous ne pouvez pas modifier votre propre rôle' 
+                error: 'Accès interdit',
+                code: 'FORBIDDEN'
+            });
+        }
+        
+        // Un admin ne peut pas modifier son propre rôle
+        if (req.user.id === userId && role && role !== req.user.role) {
+            return res.status(403).json({ 
+                error: 'Vous ne pouvez pas modifier votre propre rôle',
+                code: 'SELF_ROLE_MODIFICATION'
+            });
+        }
+        
+        if (email && !isValidEmail(email)) {
+            return res.status(400).json({ 
+                error: 'Format d\'email invalide',
+                code: 'INVALID_EMAIL'
             });
         }
         
         if (password && password !== '') {
             const pwValidation = validatePassword(password);
             if (!pwValidation.valid) {
-                return res.status(400).json({ error: pwValidation.error });
+                return res.status(400).json({ 
+                    error: pwValidation.error,
+                    code: pwValidation.code
+                });
             }
         }
         
@@ -397,7 +631,10 @@ app.put('/api/users/:id', authenticateToken, verifyCsrf, async (req, res) => {
         if (nom !== undefined) { fields.push('nom = ?'); values.push(nom); }
         if (prenom !== undefined) { fields.push('prenom = ?'); values.push(prenom); }
         if (email !== undefined) { fields.push('email = ?'); values.push(email); }
-        if (role !== undefined) { fields.push('role = ?'); values.push(role); }
+        if (role !== undefined && req.user.role === 'admin') { 
+            fields.push('role = ?'); 
+            values.push(role === 'admin' ? 'admin' : 'user'); 
+        }
         
         if (password !== undefined && password !== '') {
             const hash = await bcrypt.hash(password, 12);
@@ -406,370 +643,143 @@ app.put('/api/users/:id', authenticateToken, verifyCsrf, async (req, res) => {
         }
         
         if (fields.length === 0) {
-            return res.status(400).json({ error: 'Aucun champ à modifier' });
+            return res.status(400).json({ 
+                error: 'Aucun champ à modifier',
+                code: 'NO_FIELDS_TO_UPDATE'
+            });
         }
         
-        values.push(id);
+        values.push(userId);
         const sql = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
         await pool.query(sql, values);
         
-        if (req.user.role === 'admin' && req.user.id !== Number(id)) {
-            console.log(`[AUDIT] Admin ${req.user.id} modified user ${id}`, {
-                changed: Object.keys(req.body),
-                timestamp: new Date().toISOString()
-            });
+        if (req.user.role === 'admin' && req.user.id !== userId) {
+            console.log(`[AUDIT] Admin ${req.user.id} modified user ${userId}`);
         }
         
         const [rows] = await pool.query(
             'SELECT id, nom, prenom, email, role FROM users WHERE id = ?', 
-            [id]
+            [userId]
         );
-        res.json(rows[0] || null);
+        
+        res.json({ 
+            user: rows[0] || null,
+            code: 'USER_UPDATED'
+        });
     } catch (err) {
         console.error('PUT /api/users/:id error:', err);
-        res.status(500).json({ error: 'Erreur mise à jour utilisateur' });
+        res.status(500).json({ 
+            error: 'Erreur mise à jour utilisateur',
+            code: 'USER_UPDATE_ERROR'
+        });
     }
 });
 
 app.delete('/api/users/:id', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
     try {
-        const id = req.params.id;
+        const userId = parseInt(req.params.id);
         
-        if (Number(id) === req.user.id) {
-            return res.status(403).json({ 
-                error: 'Vous ne pouvez pas supprimer votre propre compte' 
+        if (isNaN(userId) || userId <= 0) {
+            return res.status(400).json({ 
+                error: 'ID utilisateur invalide',
+                code: 'INVALID_USER_ID'
             });
         }
         
-        await pool.query('DELETE FROM users WHERE id = ?', [id]);
+        if (userId === req.user.id) {
+            return res.status(403).json({ 
+                error: 'Vous ne pouvez pas supprimer votre propre compte',
+                code: 'SELF_DELETION'
+            });
+        }
         
-        console.log(`[AUDIT] Admin ${req.user.id} deleted user ${id}`);
+        await pool.query('DELETE FROM users WHERE id = ?', [userId]);
         
-        res.json({ ok: true });
+        console.log(`[AUDIT] Admin ${req.user.id} deleted user ${userId}`);
+        
+        res.json({ 
+            ok: true,
+            message: 'Utilisateur supprimé',
+            code: 'USER_DELETED'
+        });
     } catch (err) {
         console.error('DELETE /api/users/:id error:', err);
-        res.status(500).json({ error: 'Erreur suppression utilisateur' });
-    }
-});
-
-const DATA_PATH = path.join(__dirname, 'data', 'films.json');
-
-function isValidDataPath(filepath) {
-    const resolved = path.resolve(filepath);
-    const dataDir = path.resolve(__dirname, 'data');
-    return resolved.startsWith(dataDir);
-}
-
-async function readStoredFilms() {
-    try {
-        if (!isValidDataPath(DATA_PATH)) {
-            throw new Error('Invalid data path');
-        }
-        const txt = await fsp.readFile(DATA_PATH, 'utf8');
-        return JSON.parse(txt || '[]');
-    } catch (e) {
-        return [];
-    }
-}
-
-async function writeStoredFilms(arr) {
-    try {
-        if (!isValidDataPath(DATA_PATH)) {
-            throw new Error('Invalid data path');
-        }
-        await fsp.mkdir(path.dirname(DATA_PATH), { recursive: true });
-        const newTxt = JSON.stringify(arr, null, 2);
-        await fsp.writeFile(DATA_PATH, newTxt, 'utf8');
-    } catch (e) {
-        console.error('Error writing films:', e);
-        throw e;
-    }
-}
-
-
-app.get('/api/films', async (req, res) => {
-    try {
-        const films = await readStoredFilms();
-        const active = (films || []).filter(f => !f || !f.deleted);
-        res.json(active || []);
-    } catch (err) {
-        console.error('GET /api/films error:', err);
-        res.status(500).json({ error: 'Erreur lecture films' });
-    }
-});
-
-
-app.post('/api/films', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
-    try {
-        const payload = req.body;
-        
-        if (!payload || (!payload.id && !payload._id)) {
-            return res.status(400).json({ 
-                error: 'ID requis (id ou _id)' 
-            });
-        }
-        
-        const idStr = String(payload._id || payload.id);
-        const films = await readStoredFilms();
-        
-        const existingIdx = (films || []).findIndex(f => 
-            String(f._id) === idStr || String(f.id) === idStr
-        );
-        
-        const item = Object.assign({}, payload);
-        if (!item._id) item._id = idStr;
-        if (item.deleted) delete item.deleted;
-        
-        if (existingIdx !== -1) {
-            films[existingIdx] = Object.assign({}, films[existingIdx], item);
-        } else {
-            films.unshift(item);
-        }
-        
-        await writeStoredFilms(films);
-        
-        console.log(`[AUDIT] Admin ${req.user.id} added/updated film ${idStr}`);
-        
-        res.status(201).json({ ok: true, film: item });
-    } catch (err) {
-        console.error('POST /api/films error:', err);
-        res.status(500).json({ error: 'Erreur ajout film' });
-    }
-});
-
-app.put('/api/films/:id', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
-    try {
-        const id = String(req.params.id);
-        const payload = req.body;
-        const films = await readStoredFilms();
-        
-        const idx = films.findIndex(f => 
-            String(f._id) === id || String(f.id) === id
-        );
-        
-        if (idx === -1) {
-            return res.status(404).json({ error: 'Film non trouvé' });
-        }
-        
-        films[idx] = Object.assign({}, films[idx], payload);
-        await writeStoredFilms(films);
-        
-        console.log(`[AUDIT] Admin ${req.user.id} modified film ${id}`);
-        
-        res.json(films[idx]);
-    } catch (err) {
-        console.error('PUT /api/films/:id error:', err);
-        res.status(500).json({ error: 'Erreur mise à jour film' });
-    }
-});
-
-app.delete('/api/films/:id', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
-    try {
-        const id = String(req.params.id);
-        const films = await readStoredFilms();
-        const idx = films.findIndex(f => 
-            String(f._id) === id || String(f.id) === id
-        );
-        
-        if (idx === -1) {
-            const item = { _id: id, id: isNaN(Number(id)) ? id : Number(id), deleted: true };
-            films.unshift(item);
-        } else {
-            films[idx] = Object.assign({}, films[idx], { deleted: true });
-        }
-        
-        await writeStoredFilms(films);
-        
-        console.log(`[AUDIT] Admin ${req.user.id} deleted film ${id}`);
-        
-        res.json({ ok: true });
-    } catch (err) {
-        console.error('DELETE /api/films/:id error:', err);
-        res.status(500).json({ error: 'Erreur suppression film' });
-    }
-});
-
-function validateHttpsUrl(url) {
-    try {
-        const parsed = new URL(url);
-        return parsed.protocol === 'https:';
-    } catch {
-        return false;
-    }
-}
-
-
-
-app.get('/api/catalog', async (req, res) => {
-    try {
-        const pagesNeeded = Number(req.query.pages || 10);
-        const stored = await readStoredFilms();
-        const storedMap = new Map((stored || []).map(f => [String(f._id || f.id), f]));
-        
-        const apiKey = process.env.TMDB_API_KEY;
-        let tmdb = [];
-        
-        if (apiKey) {
-            try {
-                const movies = [];
-                for (let page = 1; page <= pagesNeeded; page++) {
-                    const url = `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=en-US&page=${page}`;
-                    if (!validateHttpsUrl(url)) {
-                        throw new Error('Only HTTPS URLs are allowed');
-                    }
-                    const resp = await fetch(url);
-                    if (!resp.ok) break;
-                    const data = await resp.json();
-                    if (Array.isArray(data.results)) {
-                        movies.push(...data.results.map(m => ({
-                            _id: String(m.id),
-                            id: m.id,
-                            title: m.title,
-                            overview: m.overview,
-                            poster_path: m.poster_path,
-                            release_date: m.release_date,
-                            vote_average: m.vote_average
-                        })));
-                    }
-                }
-                tmdb = movies;
-            } catch (e) {
-                console.error('TMDB fetch error:', e);
-            }
-        }
-        
-        const source = (Array.isArray(tmdb) && tmdb.length > 0) ? tmdb : (stored || []);
-        const merged = (source || []).map(m => {
-            const idStr = String(m._id || m.id);
-            const s = storedMap.get(idStr);
-            const added = !!s && !s.deleted;
-            const deleted = !!s && !!s.deleted;
-            const base = Object.assign({}, m, s || {});
-            return Object.assign({}, base, { added, deleted });
-        }).slice(0, 200);
-        
-        res.json({ page: 1, total_pages: 1, results: merged });
-    } catch (err) {
-        console.error('GET /api/catalog error:', err);
-        res.status(500).json({ error: 'Erreur catalogue' });
+        res.status(500).json({ 
+            error: 'Erreur suppression utilisateur',
+            code: 'USER_DELETE_ERROR'
+        });
     }
 });
 
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
-        tmdb_key_present: !!process.env.TMDB_API_KEY,
-        jwt_configured: !!process.env.JWT_SECRET
+        service: 'auth-gateway',
+        jwt_configured: !!process.env.JWT_SECRET,
+        timestamp: new Date().toISOString()
     });
 });
 
-
-// Proxy pour les reviews
-app.post('/api/reviews', authenticateToken, async (req, res) => {
-    try {
-        const { movie_id, rating, comment } = req.body;
-        
-        const reviewData = {
-            movie_id,
-            rating,
-            comment,
-            user_id: req.user.id
-        };
-
-        const token = req.cookies.token || 
-                     (req.headers.authorization || '').replace(/^Bearer\s+/, '');
-        
-        if (!token) {
-            return res.status(401).json({ error: 'Token manquant' });
-        }
-        
-        const response = await fetch('http://localhost:3003/reviews', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
+app.get('/', (req, res) => {
+    res.json({
+        name: 'PopcornView Auth Gateway API',
+        version: '1.0.0',
+        environment: process.env.NODE_ENV || 'development',
+        endpoints: {
+            auth: {
+                register: 'POST /api/auth/register',
+                login: 'POST /api/auth/login',
+                logout: 'POST /api/auth/logout',
+                me: 'GET /api/auth/me'
             },
-            body: JSON.stringify(reviewData)
-        });
-        
-        if (!response.ok) {
-            throw new Error(`Reviews service error: ${response.status}`);
+            users: {
+                list: 'GET /api/users (admin)',
+                create: 'POST /api/users (admin)',
+                update: 'PUT /api/users/:id',
+                delete: 'DELETE /api/users/:id (admin)'
+            },
+            health: 'GET /api/health'
         }
-        
-        const result = await response.json();
-        res.json(result);
-    } catch (err) {
-        console.error('Proxy review error:', err);
-        res.status(500).json({ error: 'Failed to add review' });
-    }
+    });
 });
 
-// Proxy pour les détails d'un film
-app.get('/api/movies/:id', authenticateToken, async (req, res) => {
+app.use((req, res) => {
+    res.status(404).json({ 
+        error: 'Route non trouvée',
+        code: 'NOT_FOUND'
+    });
+});
+
+app.use((err, req, res, next) => {
+    console.error('Server error:', err);
+    
+    const response = {
+        error: 'Internal server error',
+        code: 'INTERNAL_ERROR'
+    };
+    
+    if (process.env.NODE_ENV === 'development') {
+        response.message = err.message;
+    }
+    
+    res.status(500).json(response);
+});
+
+async function initDb() {
+    pool = mysql.createPool(DB_CONFIG);
+    
+    // Test de connexion
     try {
-        const token = req.cookies.token || 
-                     (req.headers.authorization || '').replace(/^Bearer\s+/, '');
-        
-        if (!token) {
-            return res.status(401).json({ error: 'Token manquant' });
-        }
-        
-        const movieServiceUrl = process.env.NODE_ENV === 'production'
-          ? (process.env.MOVIE_SERVICE_URL || 'http://localhost:4001').replace(/^http:/, 'https:')
-          : process.env.MOVIE_SERVICE_URL || 'http://localhost:4001';
-        
-        const response = await fetch(`${movieServiceUrl}/api/movies/${req.params.id}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            return res.status(response.status).json(errorData || { error: 'Films service error' });
-        }
-        
-        const data = await response.json();
-        res.json(data);
+        const connection = await pool.getConnection();
+        console.log('✓ Connecté à MySQL');
+        connection.release();
     } catch (err) {
-        console.error('Proxy movie details error:', err);
-        res.status(500).json({ error: 'Failed to fetch movie details' });
+        console.error('❌ Erreur connexion MySQL:', err.message);
+        throw err;
     }
-});
-
-// Proxy pour les reviews d'un film
-app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
-    try {
-        const token = req.cookies.token || 
-                     (req.headers.authorization || '').replace(/^Bearer\s+/, '');
-        
-        if (!token) {
-            return res.status(401).json({ error: 'Token manquant' });
-        }
-        
-        const movieServiceUrl = process.env.NODE_ENV === 'production'
-          ? (process.env.MOVIE_SERVICE_URL || 'http://localhost:4001').replace(/^http:/, 'https:')
-          : process.env.MOVIE_SERVICE_URL || 'http://localhost:4001';
-        
-        const response = await fetch(`${movieServiceUrl}/api/movies/${req.params.id}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            return res.status(response.status).json(errorData || { error: 'Films service error' });
-        }
-        
-        const data = await response.json();
-        res.json(data);
-    } catch (err) {
-        console.error('Proxy reviews error:', err);
-        res.status(500).json({ error: 'Failed to fetch reviews' });
-    }
-});
-
+    
+    return pool;
+}
 
 initDb().then(() => {
     (async function ensureAdmin() {
@@ -780,12 +790,9 @@ initDb().then(() => {
             const ADMIN_PRENOM = process.env.ADMIN_PRENOM || 'System';
             
             if (!ADMIN_EMAIL || !ADMIN_PASS) {
-                console.warn('ADMIN_EMAIL and ADMIN_PASSWORD must be set in environment variables');
-                console.warn('Skipping admin user creation');
-                app.listen(PORT, () => {
-                    console.log(` Server listening on http://localhost:${PORT}`);
-                    console.log(` Security: Helmet, CSRF, Rate Limiting enabled`);
-                });
+                console.warn('⚠️  ADMIN_EMAIL et ADMIN_PASSWORD non définis');
+                console.warn('   Création de l\'admin ignorée');
+                startServer();
                 return;
             }
             
@@ -805,26 +812,41 @@ initDb().then(() => {
                         'UPDATE users SET password = ? WHERE id = ?', 
                         [hash, user.id]
                     );
-                    console.log(` Admin password updated to bcrypt hash`);
+                    console.log('✓ Mot de passe admin mis à jour');
+                } else {
+                    console.log(`✓ Admin existant (id: ${user.id})`);
                 }
             } else {
                 const hash = await bcrypt.hash(ADMIN_PASS, 12);
-                const [r] = await pool.query(
+                const [result] = await pool.query(
                     'INSERT INTO users (nom, prenom, email, role, password) VALUES (?, ?, ?, ?, ?)',
                     [ADMIN_NOM, ADMIN_PRENOM, ADMIN_EMAIL, 'admin', hash]
                 );
-                console.log(` Admin user created (id ${r.insertId})`);
+                console.log(`✓ Admin créé (id: ${result.insertId})`);
             }
         } catch (err) {
-            console.error('Admin setup error:', err);
+            console.error('❌ Admin setup error:', err);
         }
         
-        app.listen(PORT, () => {
-            console.log(` Server listening on http://localhost:${PORT}`);
-            console.log(` Security: Helmet, CSRF, Rate Limiting enabled`);
-        });
+        startServer();
     })();
 }).catch(err => {
-    console.error('Failed to initialize DB:', err);
+    console.error('❌ Failed to initialize DB:', err);
     process.exit(1);
 });
+
+function startServer() {
+    app.listen(PORT, () => {
+        console.log(`
+🚀 Auth Gateway démarrée sur: http://localhost:${PORT}
+🔒 Environnement: ${process.env.NODE_ENV || 'development'}
+✓ JWT Auth: Configuré
+✓ Admin: ${process.env.ADMIN_EMAIL ? 'Configuré' : 'Non configuré'}
+  
+📚 Documentation: http://localhost:${PORT}
+🏥 Health check: http://localhost:${PORT}/api/health
+        `);
+    });
+}
+
+module.exports = app;
