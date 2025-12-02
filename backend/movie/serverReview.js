@@ -105,9 +105,9 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
-    console.log(`✅ Client authentifié: ${socket.userId}`);
+    console.log(` Client authentifié: ${socket.userId}`);
     socket.on("disconnect", () => {
-        console.log("❌ Client déconnecté:", socket.id);
+        console.log(" Client déconnecté:", socket.id);
     });
 });
 
@@ -141,26 +141,57 @@ function authenticateToken(req, res, next) {
     });
 }
 
-//Validation XSS
-function sanitizeHtml(text) {
-    if (!text || typeof text !== 'string') return '';
+
+function sanitizeHtml(text, maxLength = 10000) {
+    // Validation d'entrée
+    if (typeof text !== 'string') {
+        return '';
+    }
     
-    return text
-        .replace(/<script[^>]*>.*?<\/script>/gis, '') 
-        .replace(/<iframe[^>]*>.*?<\/iframe>/gis, '')
-        .replace(/<object[^>]*>.*?<\/object>/gis, '')
-        .replace(/<embed[^>]*>/gi, '')
-        .replace(/<link[^>]*>/gi, '')
-        .replace(/<style[^>]*>.*?<\/style>/gis, '')
-        .replace(/<[^>]+>/g, '')
-        .replace(/javascript:/gi, '')
-        .replace(/on\w+\s*=/gi, '')
-        .replace(/eval\s*\(/gi, '')
-        .replace(/expression\s*\(/gi, '')
-        .replace(/vbscript:/gi, '')
-        .replace(/data:text\/html/gi, '')
-        .trim();
+    if (text.length > maxLength) {
+        text = text.substring(0, maxLength);
+    }
+    
+    const dangerousPatterns = [
+        /<script\b[^>]*>([\s\S]{0,5000})?<\/script>/gi,
+        /<iframe\b[^>]*>([\s\S]{0,5000})?<\/iframe>/gi,
+        /<object\b[^>]*>([\s\S]{0,5000})?<\/object>/gi,
+        
+        /<\s*(embed|link|style|meta)\b[^>]*>/gi,
+        
+        /\s+on\w+\s*=\s*["'][^"']{0,100}["']/gi,
+        /\s+on\w+\s*=\s*[^\s>]{0,100}/gi,
+        
+        /(href|src|action)\s*=\s*["']\s*(javascript|vbscript|data):[^"']{0,200}["']/gi
+    ];
+    
+    let sanitized = text;
+    
+    dangerousPatterns.forEach(pattern => {
+        sanitized = sanitized.replace(pattern, '');
+    });
+    
+    sanitized = sanitized.replace(/<\/?[a-zA-Z][^>]{0,100}>/g, '');
+    
+    const htmlEntities = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+        '/': '&#x2F;'
+    };
+    
+    sanitized = sanitized.replace(/[&<>"']/g, (match) => {
+        return htmlEntities[match] || match;
+    });
+    
+    sanitized = sanitized.replace(/\s{2,}/g, ' ');
+    
+    return sanitized.trim();
 }
+
+module.exports = { sanitizeHtml };
 
 const validateReview = [
     body('movie_id')

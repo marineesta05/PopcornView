@@ -714,7 +714,11 @@ app.get('/api/movies/:id', authenticateToken, async (req, res) => {
             return res.status(401).json({ error: 'Token manquant' });
         }
         
-        const response = await fetch(`http://localhost:4001/api/movies/${req.params.id}`, {
+        const movieServiceUrl = process.env.NODE_ENV === 'production'
+          ? (process.env.MOVIE_SERVICE_URL || 'http://localhost:4001').replace(/^http:/, 'https:')
+          : process.env.MOVIE_SERVICE_URL || 'http://localhost:4001';
+        
+        const response = await fetch(`${movieServiceUrl}/api/movies/${req.params.id}`, {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
@@ -743,7 +747,11 @@ app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
             return res.status(401).json({ error: 'Token manquant' });
         }
         
-        const response = await fetch(`http://localhost:4001/api/movies/${req.params.id}/reviews`, {
+        const movieServiceUrl = process.env.NODE_ENV === 'production'
+          ? (process.env.MOVIE_SERVICE_URL || 'http://localhost:4001').replace(/^http:/, 'https:')
+          : process.env.MOVIE_SERVICE_URL || 'http://localhost:4001';
+        
+        const response = await fetch(`${movieServiceUrl}/api/movies/${req.params.id}`, {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
@@ -771,10 +779,9 @@ initDb().then(() => {
             const ADMIN_NOM = process.env.ADMIN_NOM || 'Admin';
             const ADMIN_PRENOM = process.env.ADMIN_PRENOM || 'System';
             
-            // ✅ Vérifier que les credentials admin sont définis
             if (!ADMIN_EMAIL || !ADMIN_PASS) {
-                console.warn('⚠️  ADMIN_EMAIL and ADMIN_PASSWORD must be set in environment variables');
-                console.warn('⚠️  Skipping admin user creation');
+                console.warn('ADMIN_EMAIL and ADMIN_PASSWORD must be set in environment variables');
+                console.warn('Skipping admin user creation');
                 app.listen(PORT, () => {
                     console.log(` Server listening on http://localhost:${PORT}`);
                     console.log(` Security: Helmet, CSRF, Rate Limiting enabled`);
