@@ -589,6 +589,15 @@ app.delete('/api/films/:id', authenticateToken, requireAdmin, verifyCsrf, async 
     }
 });
 
+function validateHttpsUrl(url) {
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
 
 
 app.get('/api/catalog', async (req, res) => {
@@ -605,6 +614,9 @@ app.get('/api/catalog', async (req, res) => {
                 const movies = [];
                 for (let page = 1; page <= pagesNeeded; page++) {
                     const url = `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=en-US&page=${page}`;
+                    if (!validateHttpsUrl(url)) {
+                        throw new Error('Only HTTPS URLs are allowed');
+                    }
                     const resp = await fetch(url);
                     if (!resp.ok) break;
                     const data = await resp.json();
@@ -754,10 +766,21 @@ app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
 initDb().then(() => {
     (async function ensureAdmin() {
         try {
-            const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin1@gmail.com';
-            const ADMIN_PASS = process.env.ADMIN_PASSWORD || 'Admin@123456';
+            const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+            const ADMIN_PASS = process.env.ADMIN_PASSWORD;
             const ADMIN_NOM = process.env.ADMIN_NOM || 'Admin';
             const ADMIN_PRENOM = process.env.ADMIN_PRENOM || 'System';
+            
+            // ✅ Vérifier que les credentials admin sont définis
+            if (!ADMIN_EMAIL || !ADMIN_PASS) {
+                console.warn('⚠️  ADMIN_EMAIL and ADMIN_PASSWORD must be set in environment variables');
+                console.warn('⚠️  Skipping admin user creation');
+                app.listen(PORT, () => {
+                    console.log(` Server listening on http://localhost:${PORT}`);
+                    console.log(` Security: Helmet, CSRF, Rate Limiting enabled`);
+                });
+                return;
+            }
             
             const [rows] = await pool.query(
                 'SELECT id, password FROM users WHERE email = ?', 
