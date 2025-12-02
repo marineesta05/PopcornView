@@ -17,31 +17,34 @@ export default function MovieDetail() {
     const fetchOptions = () => ({ credentials: 'include' });
 
     useEffect(() => {
-        if (!id) return;
+    if (!id) return;
+    
+    const fetchMovie = async () => {
+        setLoadingMovie(true);
+        setError(null);
         
-        const fetchMovie = async () => {
-            setLoadingMovie(true);
-            setError(null);
+        try {
+            // ✅ Utiliser withCredentials pour envoyer automatiquement les cookies
+            const response = await fetch(`http://localhost:4000/api/movies/${id}`, {
+                credentials: 'include'  // ✅ Envoie les cookies automatiquement
+            });
             
-            try {
-                const response = await fetch(`http://localhost:4000/api/movies/${id}`, fetchOptions());
-                
-                if (!response.ok) {
-                    throw new Error("Failed to load movie");
-                }
-                
-                const data = await response.json();
-                setMovie(data);
-            } catch (err) {
-                console.error('Error loading movie:', err);
-                setError(err.message || "Error loading movie");
-            } finally {
-                setLoadingMovie(false);
+            if (!response.ok) {
+                throw new Error("Failed to load movie");
             }
-        };
+            
+            const data = await response.json();
+            setMovie(data);
+        } catch (err) {
+            console.error('Error loading movie:', err);
+            setError(err.message || "Error loading movie");
+        } finally {
+            setLoadingMovie(false);
+        }
+    };
 
-        fetchMovie();
-    }, [id]);
+    fetchMovie();
+}, [id]);
 
     useEffect(() => {
         if (!id) return;
@@ -229,6 +232,15 @@ export default function MovieDetail() {
                     </div>
                 )}
             </section>
+            <button onClick={navigate.bind(null, '/home')}
+                            style={{
+                                padding: "10px 20px",
+                                backgroundColor: "#5e35b1",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: "pointer"
+                            }}>Retourner a la liste des films</button>
         </div>
     );
 }

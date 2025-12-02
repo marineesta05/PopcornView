@@ -6,7 +6,8 @@ import { getCsrfToken } from '../utils/csrf';
 const AddReview = () => {
     const navigate = useNavigate();
     const { movieId } = useParams();
-    const [token, setToken] = useState(null);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [checkingAuth, setCheckingAuth] = useState(true);
 
     const MAX_COMMENT = 500;
 
@@ -19,6 +20,30 @@ const AddReview = () => {
     const [success, setSuccess] = useState("");
     const [loading, setLoading] = useState(false);
 
+    // Vérifier l'authentification
+    useEffect(() => {
+        const checkAuth = async () => {
+            try {
+                const response = await axios.get('http://localhost:4000/api/auth/me', {
+                    withCredentials: true,
+                    timeout: 5000
+                });
+                
+                if (response.data && response.data.user) {
+                    setIsAuthenticated(true);
+                } else {
+                    setIsAuthenticated(false);
+                }
+            } catch (error) {
+                console.error("Erreur vérification auth:", error);
+                setIsAuthenticated(false);
+            } finally {
+                setCheckingAuth(false);
+            }
+        };
+
+        checkAuth();
+    }, []);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -40,6 +65,10 @@ const AddReview = () => {
         setError("");
         setSuccess("");
 
+        if (!isAuthenticated) {
+            setError("Vous devez être connecté pour ajouter un avis");
+            return;
+        }
 
         setLoading(true);
 
@@ -62,10 +91,9 @@ const AddReview = () => {
         }
 
         try {
-            const headers = { 'Content-Type': 'application/json' };
-            const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
-            const response = await axios.post(
-                "http://localhost:3003/reviews",
+            console.log("Envoi de la review au service reviews...");
+            
+            const response = await axios.post("http://localhost:4000/api/reviews",
                 {
                     movie_id: parseInt(movieId),
                     rating: parseInt(formData.rating),
@@ -73,9 +101,13 @@ const AddReview = () => {
                 },
                 {
                     withCredentials: true,
-                    headers
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
                 }
             );
+            
+            console.log("Réponse du service reviews:", response.data);
             
             if (response.status === 201) {
                 setSuccess("Avis ajouté avec succès!");
@@ -84,14 +116,19 @@ const AddReview = () => {
                 }, 1500);
             }
         } catch (err) {
-            console.error("Erreur:", err.response?.data);
+            console.error("Erreur détaillée:", {
+                message: err.message,
+                response: err.response?.data,
+                status: err.response?.status,
+                config: err.config
+            });
             
-            if (err.response?.status === 401 || err.response?.data?.message === "Token invalide") {
-                setError("Session expirée. Veuillez vous reconnecter.");
-                localStorage.removeItem("token");
-                setToken(null);
+            if (err.response?.status === 401) {
+                setError("Le service de commentaires ne reçoit pas votre session. Vérifiez que vous êtes bien connecté.");
             } else if (err.response?.data?.message) {
                 setError(err.response.data.message);
+            } else if (err.code === 'ERR_NETWORK') {
+                setError("Impossible de se connecter au service de commentaires. Vérifiez qu'il est démarré.");
             } else {
                 setError("Une erreur est survenue. Veuillez réessayer.");
             }
@@ -100,7 +137,21 @@ const AddReview = () => {
         }
     };
 
-    if (!token) {
+    if (checkingAuth) {
+        return (
+            <div style={{ 
+                maxWidth: "500px", 
+                margin: "50px auto", 
+                padding: "20px", 
+                textAlign: "center"
+            }}>
+                <h2>Vérification de l'authentification...</h2>
+                <p>Veuillez patienter.</p>
+            </div>
+        );
+    }
+
+    if (!isAuthenticated) {
         return (
             <div style={{ 
                 maxWidth: "500px", 
@@ -144,7 +195,7 @@ const AddReview = () => {
                     border: "1px solid #ffcccc"
                 }}>
                     <strong>Erreur:</strong> {error}
-                    {(error.includes("Token") || error.includes("session")) && (
+                    {(error.includes("Token") || error.includes("session") || error.includes("non autorisée")) && (
                         <div style={{ marginTop: "10px" }}>
                             <button 
                                 onClick={handleReconnect}

@@ -85,7 +85,6 @@ const Home = () => {
     };
 
     const restoreDeleted = async (movieId) => {
-        
         if (!window.confirm('Restaurer ce film ?')) return;
         try {
             const headers = {};

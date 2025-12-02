@@ -20,6 +20,8 @@ export default function Profile() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [user, setUser] = useState(null);
+  const [userReviews, setUserReviews] = useState([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
 
   const [form, setForm] = useState({ nom: '', prenom: '', email: '', password: '', confirmPassword: '' });
 
@@ -32,6 +34,9 @@ export default function Profile() {
         if (resp && resp.data && resp.data.user) {
           setUser(resp.data.user);
           setForm({ nom: resp.data.user.nom || '', prenom: resp.data.user.prenom || '', email: resp.data.user.email || '', password: '', confirmPassword: '' });
+          
+          // Charger les reviews de l'utilisateur
+          loadUserReviews(resp.data.user.id);
         } else {
           navigate('/login', { replace: true });
         }
@@ -45,6 +50,51 @@ export default function Profile() {
     load();
     return () => { mounted = false; };
   }, [navigate]);
+
+  const loadUserReviews = async (userId) => {
+    setLoadingReviews(true);
+    try {
+      const resp = await axios.get('http://localhost:3003/reviews', { 
+        withCredentials: true,
+        timeout: 8000 
+      });
+      
+      if (resp && resp.data) {
+        // Filtrer les reviews de l'utilisateur connecté
+        const filteredReviews = resp.data.filter(review => review.user_id === userId);
+        setUserReviews(filteredReviews);
+      }
+    } catch (err) {
+      console.error('Error loading user reviews:', err);
+    } finally {
+      setLoadingReviews(false);
+    }
+  };
+
+  const handleDeleteReview = async (reviewId) => {
+    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet avis ?')) return;
+
+    try {
+      const headers = {};
+      const csrf = getCsrfToken(); 
+      if (csrf) headers['x-csrf-token'] = csrf;
+
+      await axios.delete(`http://localhost:3003/reviews/${reviewId}`, {
+        withCredentials: true,
+        headers,
+        timeout: 8000
+      });
+
+      // Retirer la review de la liste
+      setUserReviews(prev => prev.filter(r => r.id !== reviewId));
+      setMessage('Avis supprimé avec succès');
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err) {
+      console.error('Error deleting review:', err);
+      setError('Erreur lors de la suppression de l\'avis');
+      setTimeout(() => setError(''), 3000);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -94,10 +144,10 @@ export default function Profile() {
   if (loading) return <div style={{ textAlign: 'center', marginTop: 40 }}>Chargement...</div>;
 
   return (
-    <div style={{ maxWidth: 700, margin: '40px auto', padding: 20 }}>
+    <div style={{ maxWidth: 900, margin: '40px auto', padding: 20 }}>
       <h2>Mon Profil</h2>
-      {message && <div style={{ background: '#e8f5e9', padding: 10, borderRadius: 6, color: '#2e7d32' }}>{message}</div>}
-      {error && <div style={{ background: '#ffebee', padding: 10, borderRadius: 6, color: '#c62828' }}>{error}</div>}
+      {message && <div style={{ background: '#e8f5e9', padding: 10, borderRadius: 6, color: '#2e7d32', marginBottom: 16 }}>{message}</div>}
+      {error && <div style={{ background: '#ffebee', padding: 10, borderRadius: 6, color: '#c62828', marginBottom: 16 }}>{error}</div>}
 
       <form onSubmit={handleSubmit} style={{ marginTop: 16, display: 'grid', gap: 12 }}>
         <div>
@@ -131,6 +181,93 @@ export default function Profile() {
           <button type="button" onClick={() => navigate('/home')} style={{ background: '#6c757d', color: '#fff', padding: '10px 14px', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Retour</button>
         </div>
       </form>
+
+      {/* Section des reviews de l'utilisateur */}
+      <div style={{ marginTop: 40, borderTop: '2px solid #e0e0e0', paddingTop: 24 }}>
+        <h3>Mes Avis ({userReviews.length})</h3>
+        
+        {loadingReviews ? (
+          <div style={{ textAlign: 'center', padding: 20, color: '#666' }}>Chargement des avis...</div>
+        ) : userReviews.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 20, color: '#666', background: '#f5f5f5', borderRadius: 6 }}>
+            Vous n'avez pas encore publié d'avis.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
+            {userReviews.map((review) => (
+              <div 
+                key={review.id} 
+                style={{ 
+                  border: '1px solid #e0e0e0', 
+                  borderRadius: 8, 
+                  padding: 16,
+                  background: '#fafafa'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div>
+                    <strong style={{ fontSize: '1.1em' }}>Film ID: {review.movie_id}</strong>
+                    <div style={{ 
+                      display: 'inline-block',
+                      marginLeft: 12,
+                      background: '#ffeb3b', 
+                      padding: '4px 10px', 
+                      borderRadius: 4,
+                      fontWeight: 'bold'
+                    }}>
+                      ⭐ {review.rating}/5
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteReview(review.id)}
+                    style={{
+                      background: '#d32f2f',
+                      color: 'white',
+                      border: 'none',
+                      padding: '6px 12px',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      fontSize: '0.9em'
+                    }}
+                  >
+                    🗑️ Supprimer
+                  </button>
+                  <button
+                    onClick={navigate.bind(null, `/movie/${review.movie_id}`)}
+                    style={{
+                      background: '#812fd3ff',
+                      color: 'white',
+                      border: 'none',
+                      padding: '6px 12px',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      fontSize: '0.9em'
+                    }}
+                  >
+                    Voir le detail fu film
+                  </button>
+
+                </div>
+                
+                <p style={{ 
+                  margin: '12px 0', 
+                  lineHeight: 1.6,
+                  color: '#333'
+                }}>
+                  {review.comment}
+                </p>
+                
+                <div style={{ 
+                  fontSize: '0.85em', 
+                  color: '#999',
+                  marginTop: 8
+                }}>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
