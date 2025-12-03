@@ -7,7 +7,8 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { body, param, validationResult } = require('express-validator');
 const { Server } = require("socket.io");
-const sanitizeHtml = require('sanitize-html'); // ← Bibliothèque sécurisée
+const sanitizeHtml = require('sanitize-html'); 
+const cookieParser = require('cookie-parser');
 
 dotenv.config({ path: '../.env' });
 
@@ -65,6 +66,8 @@ app.use(helmet({
     ieNoOpen: true,
     dnsPrefetchControl: { allow: false }
 }));
+
+app.use(cookieParser());
 
 // ========== CORS SÉCURISÉ ==========
 const allowedOrigins = [
@@ -174,13 +177,16 @@ io.on("connection", (socket) => {
     });
 });
 
-// ========== MIDDLEWARE AUTH ==========
 function authenticateToken(req, res, next) {
+    let token = null;
+    
     const authHeader = req.headers['authorization'];
-    let token = authHeader && authHeader.split(' ')[1];
-
-    if (!token && req.cookies && req.cookies.token) {
-        token = req.cookies.token;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+    }
+    
+    if (!token && req.cookies) {
+        token = req.cookies.token || req.cookies['JWT-SESSION'];
     }
 
     if (!token) {
@@ -204,6 +210,7 @@ function authenticateToken(req, res, next) {
     });
 }
 
+
 // ========== SANITIZATION SÉCURISÉE ==========
 function secureSanitize(text, maxLength = 10000) {
     if (typeof text !== 'string') {
@@ -215,33 +222,24 @@ function secureSanitize(text, maxLength = 10000) {
         text = text.substring(0, maxLength);
     }
     
-    // Utiliser la bibliothèque sécurisée sanitize-html
-    return sanitizeHtml(text, {
-        allowedTags: [], // AUCUNE balise HTML autorisée
-        allowedAttributes: {}, // AUCUN attribut autorisé
-        disallowedTagsMode: 'discard', // Supprimer complètement
-        
-        // Échapper automatiquement toutes les entités
-        textFilter: function(text) {
-            // Encoder les entités HTML de manière sécurisée (sans regex complexe)
-            const htmlEntities = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;',
-                '/': '&#x2F;'
-            };
-            
-            let result = '';
-            for (let i = 0; i < text.length; i++) {
-                const char = text[i];
-                result += htmlEntities[char] || char;
-            }
-            
-            return result;
-        }
-    }).replace(/\s+/g, ' ').trim(); // Nettoyer les espaces
+    // Échapper les caractères HTML dangereux
+    const htmlEntities = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+        '/': '&#x2F;'
+    };
+    
+    let result = '';
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        result += htmlEntities[char] || char;
+    }
+    
+    // Nettoyer les espaces multiples
+    return result.replace(/\s+/g, ' ').trim();
 }
 
 // ========== VALIDATEURS ==========
@@ -299,7 +297,7 @@ function handleValidationErrors(req, res, next) {
 
 // POST: Créer une review
 app.post('/reviews', 
-    detectMaliciousPayloads,
+    //detectMaliciousPayloads,
     authenticateToken, 
     createReviewLimiter,
     validateReview, 

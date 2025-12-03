@@ -8,6 +8,7 @@ const fs = require('fs').promises;
 const jwt = require('jsonwebtoken');
 const schemesList = [ 'http:', 'https:' ];
 const domainsList = [ 'localhost:3003/reviews/movie', ];
+const cookieParser = require('cookie-parser');
 
 // Import node-fetch si nécessaire
 let fetch;
@@ -33,17 +34,27 @@ app.use(cors({
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 
 
 function authenticateToken(req, res, next) {
+  // First check Authorization header
+  let token;
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Format: "Bearer <token>"
-
+  
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } 
+  
+  else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
+  }
+  
   if (!token) {
     return res.status(401).json({ error: 'Token d\'authentification requis' });
   }
-
+  
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Token invalide ou expiré' });
@@ -254,30 +265,15 @@ app.delete('/api/films/:id', authenticateToken, requireAdmin, async (req, res) =
 // GET reviews d'un film (proxy vers le service reviews sur le port 3003)
 app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
   try {
-    const filmId = Number(req.params.id);
-    if (!Number.isInteger(filmId) || filmId < 1) {
+    const filmId = parseInt(req.params.id);
+    
+    if (isNaN(filmId)) {
       return res.status(400).json({ error: 'Invalid movie ID' });
     }
-    const base = 'http://localhost:3003';
-    const reviewsPath = `/reviews/movie/${encodeURIComponent(String(filmId))}`;
-    const reviewsUrl = new URL(reviewsPath, base);
 
-    if (!schemesList.includes(reviewsUrl.protocol)) {
-      return res.status(500).json({ error: 'Invalid reviews service scheme' });
-    }
-    const hostWithPath = `${reviewsUrl.host}${reviewsUrl.pathname.replace(/\/$/, '')}`; 
-   
-    const configuredHostAndBasePath = `${reviewsUrl.host}/reviews/movie`;
-    if (!domainsList.includes(`${reviewsUrl.host}${reviewsUrl.pathname.replace(/\/\d+$/, '')}`) &&
-        !domainsList.includes(configuredHostAndBasePath.replace(/\/$/, ''))) {
-   
-      if (reviewsUrl.host !== 'localhost:3003') {
-        return res.status(500).json({ error: 'Unauthorized reviews service host' });
-      }
-    }
-
-    const reviewsResponse = await fetch(reviewsUrl.toString(), {
-      method: 'GET',
+    // Faire une requête au service reviews sur le port 3003
+    const reviewsUrl = `http://localhost:3003/reviews/movie/${filmId}`;
+    const reviewsResponse = await fetch(reviewsUrl, {
       headers: {
         'Authorization': req.headers['authorization'] || ''
       }
@@ -288,7 +284,8 @@ app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
     }
 
     const reviews = await reviewsResponse.json();
-
+    
+    // Formater les reviews pour le frontend
     const formattedReviews = reviews.map(review => ({
       id: review.id,
       author: review.email || `User${review.user_id}`,

@@ -11,7 +11,6 @@ const validator = require('validator');
 dotenv.config({ path: '../.env' });
 const db = require('../database.js');
 
-// ========== VALIDATION DU JWT_SECRET ==========
 function validateJwtSecret() {
     const MIN_LENGTH = 32;
     const secret = process.env.JWT_SECRET;
@@ -40,6 +39,15 @@ validateJwtSecret();
 const app = express();
 
 // ========== MIDDLEWARES DE SÉCURITÉ ==========
+app.use(cors({
+    origin: ['http://localhost:3000', 'http://localhost:4000'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+}));
+
+app.use(express.json({ limit: '10kb' }));
+
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
@@ -55,15 +63,6 @@ app.use(helmet({
     frameguard: { action: 'deny' },
     noSniff: true
 }));
-
-app.use(cors({
-    origin: ['http://localhost:3000', 'http://localhost:4000'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
-}));
-
-app.use(express.json({ limit: '10kb' }));
 
 // Rate limiting
 const authLimiter = rateLimit({
@@ -164,23 +163,28 @@ app.post('/register', authLimiter, async (req, res) => {
             { expiresIn: '12h' }
         );
 
+        // Cookie token - visible dans l'inspecteur
+        const isProduction = process.env.NODE_ENV === 'production';
         res.cookie('token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: 12 * 60 * 60 * 1000
+            secure: isProduction,
+            sameSite: isProduction ? 'strict' : 'lax', 
+            maxAge: 12 * 60 * 60 * 1000,
+            path: '/'
         });
 
+        // Cookie CSRF - visible dans l'inspecteur
         const csrf = crypto.randomBytes(32).toString('hex');
         res.cookie('XSRF-TOKEN', csrf, { 
             httpOnly: false, 
-            secure: process.env.NODE_ENV === 'production', 
-            sameSite: 'strict' 
+            secure: isProduction, 
+            sameSite: isProduction ? 'strict' : 'lax', 
+            path: '/' 
         });
 
         console.log(`[AUDIT] New user registered: ${result.insertId} (${email})`);
 
-        res.status(201).json({ 
+        return res.status(201).json({ 
             message: 'Inscription réussie',
             token,
             user: {
@@ -189,12 +193,25 @@ app.post('/register', authLimiter, async (req, res) => {
                 prenom,
                 email,
                 role: userRole
+            },
+            cookies_set: {
+                token: {
+                    httpOnly: true,
+                    secure: isProduction,
+                    sameSite: isProduction ? 'strict' : 'lax',
+                    maxAge: '12h'
+                },
+                'XSRF-TOKEN': {
+                    httpOnly: false,
+                    secure: isProduction,
+                    sameSite: isProduction ? 'strict' : 'lax'
+                }
             }
         });
 
     } catch (error) {
         console.error('Register error:', error);
-        res.status(500).json({ 
+        return res.status(500).json({ 
             message: 'Erreur serveur',
             code: 'SERVER_ERROR'
         });
@@ -246,18 +263,23 @@ app.post('/login', authLimiter, async (req, res) => {
             { expiresIn: "12h" }
         );
 
+        // Cookie token - visible dans l'inspecteur
+        const isProduction = process.env.NODE_ENV === 'production';
         res.cookie('token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: 12 * 60 * 60 * 1000
+            secure: isProduction,
+            sameSite: isProduction ? 'strict' : 'lax', // ✅ LAX en dev
+            maxAge: 12 * 60 * 60 * 1000,
+            path: '/'
         });
 
+        // Cookie CSRF - visible dans l'inspecteur
         const csrf = crypto.randomBytes(32).toString('hex');
         res.cookie('XSRF-TOKEN', csrf, { 
             httpOnly: false, 
-            secure: process.env.NODE_ENV === 'production', 
-            sameSite: 'strict' 
+            secure: isProduction, 
+            sameSite: isProduction ? 'strict' : 'lax', // ✅ LAX en dev
+            path: '/'
         });
 
         console.log(`[AUDIT] User logged in: ${user.id} (${user.email})`);
@@ -270,6 +292,19 @@ app.post('/login', authLimiter, async (req, res) => {
                 role: user.role,
                 nom: user.nom,
                 prenom: user.prenom
+            },
+            cookies_set: {
+                token: {
+                    httpOnly: true,
+                    secure: isProduction,
+                    sameSite: isProduction ? 'strict' : 'lax',
+                    maxAge: '12h'
+                },
+                'XSRF-TOKEN': {
+                    httpOnly: false,
+                    secure: isProduction,
+                    sameSite: isProduction ? 'strict' : 'lax'
+                }
             }
         });
 

@@ -172,21 +172,6 @@ const Register = () => {
                 J'ai déjà un compte
             </button>
 
-            <button
-                onClick={() => navigate("/home")}
-                style={{
-                    width: "100%",
-                    padding: "10px",
-                    marginBottom: "10px",
-                    backgroundColor: "#325139",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "4px",
-                    cursor: "pointer"
-                }}
-            >
-                Continuer sans compte
-            </button>
 
             <button
                 onClick={() => navigate("/login")}

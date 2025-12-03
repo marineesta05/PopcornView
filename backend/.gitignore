@@ -1,3 +1,22 @@
+# Variables d'environnement
 .env
 .env.local
+.env.*.local
+
+# Dependencies
 node_modules/
+
+# Build outputs
+build/
+dist/
+
+# Logs
+*.log
+
+# Database
+*.sqlite
+*.db
+
+# OS files (Windows/Mac)
+.DS_Store
+Thumbs.db

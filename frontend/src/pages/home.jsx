@@ -149,12 +149,12 @@ const Home = () => {
         }
     };
 
-    const deleteComment = async (id) => {
+    const deleteComment = async (reviewId, movieId) => {
         if (!window.confirm('Supprimer ce commentaire définitivement ?')) return;
         try {
             const headers = {};
             const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
-            await axios.delete(`http://localhost:3003/reviews/${id}`, { withCredentials: true, timeout: 10000, headers });
+            await axios.delete(`http://localhost:4000/api/movies/${movieId}/reviews/${reviewId}`, { withCredentials: true, timeout: 10000, headers });
             setMessage('✅ Commentaire supprimé');
             fetchComments();
             setTimeout(() => setMessage(''), 2000);

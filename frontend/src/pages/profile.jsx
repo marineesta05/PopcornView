@@ -71,7 +71,7 @@ export default function Profile() {
     }
   };
 
-  const handleDeleteReview = async (reviewId) => {
+  const handleDeleteReview = async (reviewId, movieId) => {
     if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet avis ?')) return;
 
     try {
@@ -79,7 +79,7 @@ export default function Profile() {
       const csrf = getCsrfToken(); 
       if (csrf) headers['x-csrf-token'] = csrf;
 
-      await axios.delete(`http://localhost:3003/reviews/${reviewId}`, {
+      await axios.delete(`http://localhost:4000/api/movies/${movieId}/reviews/${reviewId}`, {
         withCredentials: true,
         headers,
         timeout: 8000
@@ -152,34 +152,38 @@ export default function Profile() {
       <form onSubmit={handleSubmit} style={{ marginTop: 16, display: 'grid', gap: 12 }}>
         <div>
           <label style={{ display: 'block', fontWeight: 'bold' }}>
-            
+            Nom
            <input name="nom" value={form.nom} onChange={handleChange} maxLength={50} style={{ width: '100%', padding: 8 }} required />
-            Nom</label>
+            </label>
         </div>
 
         <div>
           <label style={{ display: 'block', fontWeight: 'bold' }}>
+            Prénom
               <input name="prenom" value={form.prenom} onChange={handleChange} maxLength={50} style={{ width: '100%', padding: 8 }} required />
-            Prénom</label>
+            </label>
         </div>
 
         <div>
           <label style={{ display: 'block', fontWeight: 'bold' }}>
+            Email
               <input name="email" value={form.email} onChange={handleChange} type="email" maxLength={100} style={{ width: '100%', padding: 8 }} required />
-              Email</label>
+              </label>
         </div>
 
         <div>
           <label style={{ display: 'block', fontWeight: 'bold' }}>
+            Nouveau mot de passe (laisser vide pour conserver l'actuel)
             <input name="password" value={form.password} onChange={handleChange} type="password" style={{ width: '100%', padding: 8 }} />
-            Nouveau mot de passe (laisser vide pour conserver l'actuel)</label>
+            </label>
           <small style={{ color: '#666' }}>Min. {PASSWORD_RULES.minLen} caractères et inclure au moins 3 types : majuscule, minuscule, chiffre, caractère spécial</small>
         </div>
 
         <div>
           <label style={{ display: 'block', fontWeight: 'bold' }}>
+            Confirmer nouveau mot de passe
             <input name="confirmPassword" value={form.confirmPassword} onChange={handleChange} type="password" style={{ width: '100%', padding: 8 }} />
-            Confirmer nouveau mot de passe</label>
+            </label>
           </div>
 
         <div style={{ display: 'flex', gap: 10 }}>

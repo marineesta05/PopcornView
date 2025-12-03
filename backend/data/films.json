@@ -1,5 +1,29 @@
 [
   {
+    "_id": "1219494",
+    "id": 1219494,
+    "deleted": true
+  },
+  {
+    "_id": "1083637",
+    "id": 1083637,
+    "title": "Kantara - A Legend: Chapter 1",
+    "overview": "During the Kadamba reign, King Vijayendra, the ruler of the fictional feudatory land of Bangra, meets his final fate while venturing into the mystical forest of Kantara. Witnessing this, his son Rajashekara seals the borders of their realm. Later, Prince Kulashekara reopens them through a brutal massacre. The protagonist, Berme, in search of prosperity, crosses the divide and ignites a conflict of faith, power, and destiny between the Kingdom and Nature.",
+    "release_date": "2025-10-01",
+    "vote_average": 8,
+    "poster_path": "/zBvw25afDn93embB8L7FzvTT2xq.jpg"
+  },
+  {
+    "_id": "1246049",
+    "id": 1246049,
+    "title": "Dracula",
+    "overview": "When a 15th-century prince denounces God after the devastating loss of his wife, he inherits an eternal curse: he becomes Dracula. Condemned to wander the centuries, he defies fate and death itself, guided by a single hope — to be reunited with his lost love.",
+    "release_date": "2025-07-30",
+    "vote_average": 7.5,
+    "poster_path": "/ykyRfv7JDofLxXLAwtLXaSuaFfM.jpg",
+    "deleted": true
+  },
+  {
     "_id": "1084242",
     "id": 1084242,
     "title": "Zootopia 2",

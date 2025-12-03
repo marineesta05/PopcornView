@@ -60,82 +60,79 @@ const AddReview = () => {
         navigate("/login");
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setError("");
-        setSuccess("");
+const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
 
-        if (!isAuthenticated) {
-            setError("Vous devez être connecté pour ajouter un avis");
-            return;
-        }
+    if (!isAuthenticated) {
+        setError("Vous devez être connecté pour ajouter un avis");
+        return;
+    }
 
-        setLoading(true);
+    setLoading(true);
 
-        if (!formData.rating || formData.rating < 1 || formData.rating > 5) {
-            setError("La note doit être entre 1 et 5");
-            setLoading(false);
-            return;
-        }
+    // Validation...
+    if (!formData.rating || formData.rating < 1 || formData.rating > 5) {
+        setError("La note doit être entre 1 et 5");
+        setLoading(false);
+        return;
+    }
 
-        if (!formData.comment.trim()) {
-            setError("Le commentaire est requis");
-            setLoading(false);
-            return;
-        }
+    if (!formData.comment.trim()) {
+        setError("Le commentaire est requis");
+        setLoading(false);
+        return;
+    }
 
-        if (formData.comment.trim().length > MAX_COMMENT) {
-            setError(`Le commentaire ne doit pas dépasser ${MAX_COMMENT} caractères`);
-            setLoading(false);
-            return;
-        }
+    if (formData.comment.trim().length > MAX_COMMENT) {
+        setError(`Le commentaire ne doit pas dépasser ${MAX_COMMENT} caractères`);
+        setLoading(false);
+        return;
+    }
 
-        try {
-            console.log("Envoi de la review au service reviews...");
-            
-            const response = await axios.post("http://localhost:4000/api/reviews",
-                {
-                    movie_id: parseInt(movieId),
-                    rating: parseInt(formData.rating),
-                    comment: formData.comment.trim()
-                },
-                {
-                    withCredentials: true,
-                    headers: {
-                        "Content-Type": "application/json"
-                    }
-                }
-            );
-            
-            console.log("Réponse du service reviews:", response.data);
-            
-            if (response.status === 201) {
-                setSuccess("Avis ajouté avec succès!");
-                setTimeout(() => {
-                    navigate(`/movie/${movieId}`); 
-                }, 1500);
+    try {
+        console.log("Envoi de la review via le service auth...");
+        
+        // Utilisez le backend auth (port 4000) comme proxy
+        const response = await axios.post(
+            `http://localhost:4000/api/movies/${movieId}/reviews`,
+            {
+                rating: parseInt(formData.rating),
+                comment: formData.comment.trim()
+            },
+            {
+                withCredentials: true
             }
-        } catch (err) {
-            console.error("Erreur détaillée:", {
-                message: err.message,
-                response: err.response?.data,
-                status: err.response?.status,
-                config: err.config
-            });
-            
-            if (err.response?.status === 401) {
-                setError("Le service de commentaires ne reçoit pas votre session. Vérifiez que vous êtes bien connecté.");
-            } else if (err.response?.data?.message) {
-                setError(err.response.data.message);
-            } else if (err.code === 'ERR_NETWORK') {
-                setError("Impossible de se connecter au service de commentaires. Vérifiez qu'il est démarré.");
-            } else {
-                setError("Une erreur est survenue. Veuillez réessayer.");
-            }
-        } finally {
-            setLoading(false);
+        );
+        
+        console.log("Réponse:", response.data);
+        
+        if (response.status === 201) {
+            setSuccess("Avis ajouté avec succès!");
+            setTimeout(() => {
+                navigate(`/movie/${movieId}`); 
+            }, 1500);
         }
-    };
+    } catch (err) {
+        console.error("Erreur détaillée:", {
+            message: err.message,
+            response: err.response?.data,
+            status: err.response?.status,
+            config: err.config
+        });
+        
+        if (err.response?.status === 401) {
+            setError("Session expirée. Veuillez vous reconnecter.");
+        } else if (err.response?.data?.message) {
+            setError(err.response.data.message);
+        } else {
+            setError("Une erreur est survenue. Veuillez réessayer.");
+        }
+    } finally {
+        setLoading(false);
+    }
+};
 
     if (checkingAuth) {
         return (
@@ -287,7 +284,6 @@ const AddReview = () => {
                 <div style={{ display: "flex", gap: "10px" }}>
                     <button 
                         type="submit" 
-                        onClick={navigate.bind(null, '/movie/' + movieId)}
                         disabled={loading}
                         style={{
                             backgroundColor: loading ? "#ccc" : "#5e35b1",

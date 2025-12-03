@@ -68,19 +68,40 @@ async function getUserById(id) {
   return rows[0];
 }
 
-async function authenticateToken(req, res, next) {
-  try {
-    const token = (req.cookies && req.cookies.token) || (req.headers.authorization || '').replace(/^Bearer\s+/, '');
-    if (!token) return res.status(401).json({ error: 'Missing token' });
-    const secret = process.env.JWT_SECRET || 'replace-me-with-secret';
-    const payload = jwt.verify(token, secret);
-    const user = await getUserById(payload.id);
-    if (!user) return res.status(401).json({ error: 'Invalid token (user not found)' });
-    req.user = user;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid token' });
+function authenticateToken(req, res, next) {
+  // Try Bearer token first, then cookie
+  let token = null;
+  
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);  // Remove "Bearer " prefix
+    console.log('[AUTH] Token from Bearer header');
+  } else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
+    console.log('[AUTH] Token from cookies');
   }
+
+  if (!token) {
+    console.error('[AUTH] 401 - No token found');
+    return res.status(401).json({ 
+      error: 'Token d\'authentification requis',
+      debug: 'No token in Authorization header or cookies'
+    });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) {
+      console.error('[AUTH] 403 - Token verification failed:', err.message);
+      return res.status(403).json({ 
+        error: 'Token invalide ou expiré',
+        debug: err.message
+      });
+    }
+    
+    req.user = user;
+    console.log('[AUTH] ✓ Authenticated user:', user.id);
+    next();
+  });
 }
 
 function requireAdmin(req, res, next) {
@@ -120,6 +141,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+
     const token = signToken({ id: user.id, role: user.role });
     res.cookie('token', token, {
       httpOnly: true,
@@ -130,9 +152,58 @@ app.post('/api/auth/login', async (req, res) => {
     const csrf = generateCsrfToken();
     res.cookie('XSRF-TOKEN', csrf, { httpOnly: false, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' });
     res.json({ ok: true, id: user.id, role: user.role });
+
   } catch (err) {
     console.error('login error', err);
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// DELETE supprimer une review (proxy vers le service reviews)
+app.delete('/api/movies/:movieId/reviews/:reviewId', authenticateToken, async (req, res) => {
+  try {
+    const reviewId = parseInt(req.params.reviewId);
+    
+    if (isNaN(reviewId)) {
+      return res.status(400).json({ error: 'Invalid review ID' });
+    }
+
+    // Récupérer le token depuis les cookies ou Authorization header
+    let token = null;
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else if (req.cookies && req.cookies.token) {
+      token = req.cookies.token;
+    }
+
+    if (!token) {
+      return res.status(401).json({ error: 'Token manquant' });
+    }
+
+    // Faire la requête au service reviews sur le port 3003
+    const reviewsUrl = `http://localhost:3003/reviews/${reviewId}`;
+    const reviewsResponse = await fetch(reviewsUrl, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!reviewsResponse.ok) {
+      const errorData = await reviewsResponse.json();
+      return res.status(reviewsResponse.status).json(errorData);
+    }
+
+    const result = await reviewsResponse.json();
+    res.status(200).json(result);
+  } catch (err) {
+    console.error('Error deleting review:', err);
+    res.status(500).json({ 
+      error: 'Failed to delete review',
+      message: err.message 
+    });
   }
 });
 
@@ -475,6 +546,61 @@ app.delete('/api/films/:id', authenticateToken, requireAdmin, verifyCsrf, async 
   } catch (err) {
     console.error('delete films error', err);
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// POST ajouter une review (proxy vers le service reviews)
+app.post('/api/movies/:movieId/reviews', authenticateToken, async (req, res) => {
+  try {
+    const movieId = parseInt(req.params.movieId);
+    
+    if (isNaN(movieId)) {
+      return res.status(400).json({ error: 'Invalid movie ID' });
+    }
+
+    const { rating, comment } = req.body;
+
+    // Récupérer le token depuis les cookies ou Authorization header
+    let token = null;
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else if (req.cookies && req.cookies.token) {
+      token = req.cookies.token;
+    }
+
+    if (!token) {
+      return res.status(401).json({ error: 'Token manquant' });
+    }
+
+    // Faire la requête au service reviews sur le port 3003
+    const reviewsUrl = `http://localhost:3003/reviews`;
+    const reviewsResponse = await fetch(reviewsUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        movie_id: movieId,
+        rating: parseInt(rating),
+        comment: comment
+      })
+    });
+
+    if (!reviewsResponse.ok) {
+      const errorData = await reviewsResponse.json();
+      throw new Error(errorData.message || `Reviews service error: ${reviewsResponse.status}`);
+    }
+
+    const review = await reviewsResponse.json();
+    res.status(201).json(review);
+  } catch (err) {
+    console.error('Error adding review:', err);
+    res.status(500).json({ 
+      error: 'Failed to add review',
+      message: err.message 
+    });
   }
 });
 
