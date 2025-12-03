@@ -415,7 +415,8 @@ app.post('/api/films/:id/reset', authenticateToken, requireAdmin, verifyCsrf, as
 
 app.delete('/api/films/:id', authenticateToken, requireAdmin, verifyCsrf, async (req, res) => {
   try {
-    const id = String(req.params.id);
+    const rawId = String(req.params.id);
+    const id = encodeURIComponent(rawId);
     const films = await readStoredFilms();
     const idx = films.findIndex(f => String(f._id) === id || String(f.id) === id);
     if (idx === -1) {
@@ -423,7 +424,7 @@ app.delete('/api/films/:id', authenticateToken, requireAdmin, verifyCsrf, async 
       try {
         const apiKey = process.env.TMDB_API_KEY;
         if (apiKey) {
-          const url = `https://api.themoviedb.org/3/movie/${id}?api_key=${apiKey}&language=en-US`;
+          const url = `https://api.themoviedb.org/3/movie/?id=${id}?api_key=${apiKey}&language=en-US`;
           const resp = await fetch(url);
           if (resp && resp.ok) {
             const m = await resp.json();
@@ -450,7 +451,7 @@ app.delete('/api/films/:id', authenticateToken, requireAdmin, verifyCsrf, async 
       if ((needsTitle || needsPoster || needsOverview || needsDate) && process.env.TMDB_API_KEY) {
         try {
           const apiKey = process.env.TMDB_API_KEY;
-          const url = `https://api.themoviedb.org/3/movie/${id}?api_key=${apiKey}&language=en-US`;
+          const url = `https://api.themoviedb.org/3/movie/?id=${id}?api_key=${apiKey}&language=en-US`;
           const resp = await fetch(url);
           if (resp && resp.ok) {
             const m = await resp.json();

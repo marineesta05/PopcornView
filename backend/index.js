@@ -20,6 +20,7 @@ try {
 }
 
 const app = express();
+app.disable('x-powered-by');
 const PORT = process.env.FILMS_SERVER_PORT || 4001;
 
 
