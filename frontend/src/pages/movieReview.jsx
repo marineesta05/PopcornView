@@ -287,6 +287,7 @@ const AddReview = () => {
                 <div style={{ display: "flex", gap: "10px" }}>
                     <button 
                         type="submit" 
+                        onClick={navigate.bind(null, '/movie/' + movieId)}
                         disabled={loading}
                         style={{
                             backgroundColor: loading ? "#ccc" : "#5e35b1",
