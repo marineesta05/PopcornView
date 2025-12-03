@@ -151,30 +151,36 @@ export default function Profile() {
 
       <form onSubmit={handleSubmit} style={{ marginTop: 16, display: 'grid', gap: 12 }}>
         <div>
-          <label style={{ display: 'block', fontWeight: 'bold' }}>Nom</label>
-          <input name="nom" value={form.nom} onChange={handleChange} maxLength={50} style={{ width: '100%', padding: 8 }} required />
+          <label style={{ display: 'block', fontWeight: 'bold' }}>
+            
+           <input name="nom" value={form.nom} onChange={handleChange} maxLength={50} style={{ width: '100%', padding: 8 }} required />
+            Nom</label>
         </div>
 
         <div>
-          <label style={{ display: 'block', fontWeight: 'bold' }}>Prénom</label>
-          <input name="prenom" value={form.prenom} onChange={handleChange} maxLength={50} style={{ width: '100%', padding: 8 }} required />
+          <label style={{ display: 'block', fontWeight: 'bold' }}>
+              <input name="prenom" value={form.prenom} onChange={handleChange} maxLength={50} style={{ width: '100%', padding: 8 }} required />
+            Prénom</label>
         </div>
 
         <div>
-          <label style={{ display: 'block', fontWeight: 'bold' }}>Email</label>
-          <input name="email" value={form.email} onChange={handleChange} type="email" maxLength={100} style={{ width: '100%', padding: 8 }} required />
+          <label style={{ display: 'block', fontWeight: 'bold' }}>
+              <input name="email" value={form.email} onChange={handleChange} type="email" maxLength={100} style={{ width: '100%', padding: 8 }} required />
+              Email</label>
         </div>
 
         <div>
-          <label style={{ display: 'block', fontWeight: 'bold' }}>Nouveau mot de passe (laisser vide pour conserver l'actuel)</label>
-          <input name="password" value={form.password} onChange={handleChange} type="password" style={{ width: '100%', padding: 8 }} />
+          <label style={{ display: 'block', fontWeight: 'bold' }}>
+            <input name="password" value={form.password} onChange={handleChange} type="password" style={{ width: '100%', padding: 8 }} />
+            Nouveau mot de passe (laisser vide pour conserver l'actuel)</label>
           <small style={{ color: '#666' }}>Min. {PASSWORD_RULES.minLen} caractères et inclure au moins 3 types : majuscule, minuscule, chiffre, caractère spécial</small>
         </div>
 
         <div>
-          <label style={{ display: 'block', fontWeight: 'bold' }}>Confirmer nouveau mot de passe</label>
-          <input name="confirmPassword" value={form.confirmPassword} onChange={handleChange} type="password" style={{ width: '100%', padding: 8 }} />
-        </div>
+          <label style={{ display: 'block', fontWeight: 'bold' }}>
+            <input name="confirmPassword" value={form.confirmPassword} onChange={handleChange} type="password" style={{ width: '100%', padding: 8 }} />
+            Confirmer nouveau mot de passe</label>
+          </div>
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button type="submit" disabled={loading} style={{ background: '#131a20', color: '#fff', padding: '10px 14px', border: 'none', borderRadius: 6, cursor: 'pointer' }}>{loading ? 'Enregistrement...' : 'Enregistrer'}</button>

@@ -503,7 +503,7 @@ app.delete('/reviews/:id',
             await sql.query('DELETE FROM avis WHERE id = ?', [id]);
             
             console.log(`[AUDIT] ${userRole === 'admin' ? 'Admin' : 'User'} ${user_id} deleted review ${id}`);
-            io.emit('reviewDeleted', { id: parseInt(id, 10) });
+            io.emit('reviewDeleted', { id: Number.parseInt(id, 10) });
             
             res.status(200).json({ 
                 message: 'Avis supprimé',

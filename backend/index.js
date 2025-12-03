@@ -6,6 +6,8 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs').promises;
 const jwt = require('jsonwebtoken');
+const schemesList = [ 'http:', 'https:' ];
+const domainsList = [ 'localhost:3003/reviews/movie', ];
 
 // Import node-fetch si nécessaire
 let fetch;
@@ -191,16 +193,16 @@ app.delete('/api/films/:id', authenticateToken, requireAdmin, async (req, res) =
 // GET détails d'un film spécifique
   app.get('/api/movies/:id', authenticateToken, async (req, res) => {
     try {
-      const filmId = parseInt(req.params.id);
+      const filmId = Number.parseInt(req.params.id);
       
-      if (isNaN(filmId)) {
+      if (Number.isNaN(filmId)) {
         return res.status(400).json({ error: 'Invalid movie ID' });
       }
 
       // D'abord chercher dans les films stockés
       const storedFilms = await readStoredFilms();
       const storedFilm = storedFilms.find(f => 
-        parseInt(f.id) === filmId || parseInt(f._id) === filmId
+        Number.parseInt(f.id) === filmId || Number.parseInt(f._id) === filmId
       );
 
       if (storedFilm) {
@@ -252,15 +254,30 @@ app.delete('/api/films/:id', authenticateToken, requireAdmin, async (req, res) =
 // GET reviews d'un film (proxy vers le service reviews sur le port 3003)
 app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
   try {
-    const filmId = parseInt(req.params.id);
-    
-    if (isNaN(filmId)) {
+    const filmId = Number(req.params.id);
+    if (!Number.isInteger(filmId) || filmId < 1) {
       return res.status(400).json({ error: 'Invalid movie ID' });
     }
+    const base = 'http://localhost:3003';
+    const reviewsPath = `/reviews/movie/${encodeURIComponent(String(filmId))}`;
+    const reviewsUrl = new URL(reviewsPath, base);
 
-    // Faire une requête au service reviews sur le port 3003
-    const reviewsUrl = `http://localhost:3003/reviews/movie/${filmId}`;
-    const reviewsResponse = await fetch(reviewsUrl, {
+    if (!schemesList.includes(reviewsUrl.protocol)) {
+      return res.status(500).json({ error: 'Invalid reviews service scheme' });
+    }
+    const hostWithPath = `${reviewsUrl.host}${reviewsUrl.pathname.replace(/\/$/, '')}`; 
+   
+    const configuredHostAndBasePath = `${reviewsUrl.host}/reviews/movie`;
+    if (!domainsList.includes(`${reviewsUrl.host}${reviewsUrl.pathname.replace(/\/\d+$/, '')}`) &&
+        !domainsList.includes(configuredHostAndBasePath.replace(/\/$/, ''))) {
+   
+      if (reviewsUrl.host !== 'localhost:3003') {
+        return res.status(500).json({ error: 'Unauthorized reviews service host' });
+      }
+    }
+
+    const reviewsResponse = await fetch(reviewsUrl.toString(), {
+      method: 'GET',
       headers: {
         'Authorization': req.headers['authorization'] || ''
       }
@@ -271,8 +288,7 @@ app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
     }
 
     const reviews = await reviewsResponse.json();
-    
-    // Formater les reviews pour le frontend
+
     const formattedReviews = reviews.map(review => ({
       id: review.id,
       author: review.email || `User${review.user_id}`,
@@ -287,7 +303,6 @@ app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch reviews' });
   }
 });
-
 
 app.get('/api/tmdb/popular', authenticateToken, async (req, res) => {
   try {

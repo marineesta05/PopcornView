@@ -10,3 +10,7 @@ export default function AdminHeader({ title = 'Admin' }) {
     </div>
   );
 }
+
+AdminHeader.propTypes = {
+  title: React.PropTypes.string,
+};

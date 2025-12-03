@@ -420,7 +420,7 @@ app.delete('/api/films/:id', authenticateToken, requireAdmin, verifyCsrf, async 
     const films = await readStoredFilms();
     const idx = films.findIndex(f => String(f._id) === id || String(f.id) === id);
     if (idx === -1) {
-      const item = { _id: id, id: isNaN(Number(id)) ? id : Number(id), deleted: true };
+      const item = { _id: id, id: Number.isNaN(Number(id)) ? id : Number(id), deleted: true };
       try {
         const apiKey = process.env.TMDB_API_KEY;
         if (apiKey) {
