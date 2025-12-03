@@ -27,6 +27,7 @@ const Home = () => {
     const [showDeletedPanel, setShowDeletedPanel] = useState(false);
     const [deletedFilms, setDeletedFilms] = useState([]);
     const [deletedLoading, setDeletedLoading] = useState(false);
+    const [backupsMap, setBackupsMap] = useState({});
     const [showCommentsPanel, setShowCommentsPanel] = useState(false);
     const [comments, setComments] = useState([]);
     const [commentsLoading, setCommentsLoading] = useState(false);
@@ -240,6 +241,15 @@ const Home = () => {
             } else {
                 setMovies(visible || []);
             }
+                        // fetch list of backups for admin UI
+                        if (isAdmin) {
+                            try {
+                                const bres = await axios.get(`${FILMS_API}/films/backups`, { withCredentials: true, timeout: 8000 });
+                                setBackupsMap(bres.data || {});
+                            } catch (e) {
+                                // ignore
+                            }
+                        }
             setApiConnectionError(false);
         } catch (error) {
             if (append) setLoadingMore(false);
@@ -474,6 +484,8 @@ const Home = () => {
 
         try {
             const payload = {
+                _id: String(movie._id || movie.id),
+                id: movie.id || movie._id,
                 title: newTitle,
                 overview: newOverview,
                 release_date: newReleaseDate,
@@ -481,9 +493,22 @@ const Home = () => {
                 poster_path: movie.poster_path
             };
 
-            await axios.put(`${FILMS_API}/films/${movie._id || movie.id}`, payload, { withCredentials: true, headers: { 'Content-Type':'application/json', 'x-csrf-token': getCsrfToken() } });
+            const headers = { 'Content-Type': 'application/json' };
+            const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
 
-            setMessage('✅ Film mis à jour avec succès');
+            try {
+                await axios.put(`${FILMS_API}/films/${movie._id || movie.id}`, payload, { withCredentials: true, headers });
+                setMessage('✅ Film mis à jour avec succès');
+            } catch (err) {
+                // If film not found on server, create it instead
+                if (err.response && err.response.status === 404) {
+                    await axios.post(`${FILMS_API}/films`, payload, { withCredentials: true, headers });
+                    setMessage('✅ Film créé et mis à jour avec succès');
+                } else {
+                    throw err;
+                }
+            }
+
             setTimeout(() => setMessage(''), 2000);
             fetchMovies();
         } catch (error) {
@@ -513,6 +538,21 @@ const Home = () => {
             } else {
                 setMessage('❌ Erreur lors de la suppression: ' + (error.response?.data?.error || error.message));
             }
+            setTimeout(() => setMessage(''), 2000);
+        }
+    };
+
+    const resetMovie = async (movieId) => {
+        if (!window.confirm('Restaurer la dernière version sauvegardée pour ce film ?')) return;
+        try {
+            const headers = { 'x-csrf-token': getCsrfToken() };
+            await axios.post(`${FILMS_API}/films/${movieId}/reset`, {}, { withCredentials: true, headers });
+            setMessage('✅ Film restauré à la version précédente');
+            setTimeout(() => setMessage(''), 2000);
+            fetchMovies();
+        } catch (error) {
+            console.error('Error resetting movie:', error);
+            setMessage('❌ Impossible de restaurer le film');
             setTimeout(() => setMessage(''), 2000);
         }
     };
@@ -1369,6 +1409,8 @@ const Home = () => {
                                         >
                                             ✏️ Modifier
                                         </button>
+                                        { (backupsMap && (backupsMap[String(movie._id || movie.id)] > 0))
+                                        }
                                         <button 
                                             onClick={() => deleteMovie(movie._id || movie.id)}
                                             style={{

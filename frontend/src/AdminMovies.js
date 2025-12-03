@@ -316,7 +316,9 @@ export default function AdminMovies() {
   async function removeFilm(id) {
     if (!window.confirm('Delete this film?')) return;
     try {
-      const res = await fetch(`${API}/api/films/${id}`, { method: 'DELETE' });
+      const headers = {};
+      const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+      const res = await fetch(`${API}/api/films/${id}`, { method: 'DELETE', credentials: 'include', headers });
       if (!res.ok) throw new Error('Delete failed');
       await fetchFilms();
       setMessage('Deleted');
@@ -328,7 +330,9 @@ export default function AdminMovies() {
 
   async function restoreFilm(id) {
     try {
-      const res = await fetch(`${API}/api/films/${id}/restore`, { method: 'POST' });
+      const headers = {};
+      const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+      const res = await fetch(`${API}/api/films/${id}/restore`, { method: 'POST', credentials: 'include', headers });
       if (!res.ok) throw new Error('Restore failed');
       await fetchFilms();
       await fetchDeletedFilms();
@@ -343,7 +347,9 @@ export default function AdminMovies() {
       const newTitle = window.prompt('Title', f.title) || f.title;
       const newOverview = window.prompt('Overview', f.overview) || f.overview;
       const payload = Object.assign({}, f, { title: newTitle, overview: newOverview });
-      const res = await fetch(`${API}/api/films/${f._id || f.id}`, { method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+      const headers = { 'Content-Type': 'application/json' };
+      const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+      const res = await fetch(`${API}/api/films/${f._id || f.id}`, { method: 'PUT', credentials: 'include', headers, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error('Update failed');
       await fetchFilms();
       setMessage('Updated'); setTimeout(()=>setMessage(''),1500);
@@ -364,11 +370,15 @@ export default function AdminMovies() {
     try {
       const idStr = String(m.id);
       if (storedIds.has(idStr)) {
-        const res = await fetch(`${API}/api/films/${idStr}`, { method: 'DELETE' });
+        const headers = {};
+        const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+        const res = await fetch(`${API}/api/films/${idStr}`, { method: 'DELETE', credentials: 'include', headers });
         if (!res.ok) throw new Error('Delete failed');
       } else {
         const payload = { _id: String(m.id), id: m.id, title: m.title, overview: m.overview, poster_path: m.poster_path, release_date: m.release_date, vote_average: m.vote_average };
-        const res = await fetch(`${API}/api/films/mark-deleted`, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+        const headers = { 'Content-Type':'application/json' };
+        const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+        const res = await fetch(`${API}/api/films/mark-deleted`, { method: 'POST', credentials: 'include', headers, body: JSON.stringify(payload) });
         if (!res.ok) throw new Error('Mark deleted failed');
       }
       await fetchDeletedFilms();
@@ -518,7 +528,9 @@ export default function AdminMovies() {
                     <button onClick={async () => {
                       if (!window.confirm('Delete permanently?')) return;
                       try {
-                        const res = await fetch(`${API}/api/films/${String(df._id || df.id)}`, { method: 'DELETE' });
+                        const headers = {};
+                        const csrf = getCsrfToken(); if (csrf) headers['x-csrf-token'] = csrf;
+                        const res = await fetch(`${API}/api/films/${String(df._id || df.id)}`, { method: 'DELETE', credentials: 'include', headers });
                         if (!res.ok) throw new Error('Delete failed');
                         await fetchDeletedFilms();
                         setMessage('Deleted permanently');
