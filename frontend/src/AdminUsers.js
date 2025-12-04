@@ -24,7 +24,7 @@ export default function AdminUsers() {
       }
       fetchUsers();
     })();
-  }, []);
+  }, [navigate]);
 
   async function fetchUsers() {
     setLoading(true);

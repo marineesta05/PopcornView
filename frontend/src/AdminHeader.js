@@ -1,4 +1,5 @@
 import React from 'react';
+import PropTypes from "prop-types";
 
 export default function AdminHeader({ title = 'Admin' }) {
   return (
@@ -10,3 +11,7 @@ export default function AdminHeader({ title = 'Admin' }) {
     </div>
   );
 }
+
+AdminHeader.propTypes = {
+  title: PropTypes.string.isRequired,
+};

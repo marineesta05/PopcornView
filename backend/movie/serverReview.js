@@ -256,7 +256,7 @@ const validateReview = [
         .trim()
         .isLength({ min: 1, max: 1000 })
         .withMessage('Le commentaire doit contenir entre 1 et 1000 caractères')
-        .customSanitizer(value => secureSanitize(value)) // ← Utilise secureSanitize
+        .customSanitizer(value => secureSanitize(value)) 
 ];
 
 const validateReviewUpdate = [

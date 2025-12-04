@@ -50,7 +50,11 @@ describe('Security - Integration-ish checks (static + storage)', () => {
     const p = path.join(backend, 'movie', 'serverReview.js');
     const content = fs.readFileSync(p, 'utf8');
     expect(/express-validator/.test(content) || /validationResult\(/.test(content)).toBe(true);
-    expect(/\.escape\(\)/.test(content)).toBe(true);
+    expect(
+    /\.escape\(\)/.test(content) || 
+    /sanitizeHtml\(/.test(content) || 
+    /secureSanitize\(/.test(content)
+  ).toBe(true);
   });
 
   // Vérifie la présence d'un mécanisme de rate-limiting pour limiter les abus sur le service d'avis.
