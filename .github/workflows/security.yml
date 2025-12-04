@@ -16,6 +16,10 @@ jobs:
         with:
           node-version: 18
 
+      # Install root dependencies (for tests)
+      - name: Install root dependencies
+        run: npm install
+
       # Backend steps
       - name: Install backend dependencies
         working-directory: ./backend
@@ -24,10 +28,6 @@ jobs:
       - name: Lint backend
         working-directory: ./backend
         run: npm run lint
-
-      - name: Run backend tests
-        working-directory: ./backend
-        run: npm test
 
       - name: Backend security audit
         working-directory: ./backend
@@ -42,10 +42,10 @@ jobs:
         working-directory: ./frontend
         run: npm run lint
 
-      - name: Run frontend tests
-        working-directory: ./frontend
-        run: npm test -- --watchAll=false
-
       - name: Frontend security audit
         working-directory: ./frontend
         run: npm audit --audit-level=moderate
+
+      # Run tests from root
+      - name: Run tests
+        run: npm test
