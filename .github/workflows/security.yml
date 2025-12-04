@@ -1,8 +1,7 @@
 name: Security Pipeline
 
 on:
-  [push,
-  pull_request]
+  [push, pull_request]
 
 jobs:
   security:
@@ -17,14 +16,36 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install dependencies
+      # Backend steps
+      - name: Install backend dependencies
+        working-directory: ./backend
         run: npm install
 
-      - name: Linter
+      - name: Lint backend
+        working-directory: ./backend
         run: npm run lint
 
-      - name: Run tests
+      - name: Run backend tests
+        working-directory: ./backend
         run: npm test
 
-      - name: Security audit
+      - name: Backend security audit
+        working-directory: ./backend
+        run: npm audit --audit-level=moderate
+
+      # Frontend steps
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      - name: Lint frontend
+        working-directory: ./frontend
+        run: npm run lint
+
+      - name: Run frontend tests
+        working-directory: ./frontend
+        run: npm test -- --watchAll=false
+
+      - name: Frontend security audit
+        working-directory: ./frontend
         run: npm audit --audit-level=moderate
