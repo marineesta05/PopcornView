@@ -10,6 +10,7 @@ const schemesList = [ 'http:', 'https:' ];
 const domainsList = [ 'localhost:3003/reviews/movie', ];
 const cookieParser = require('cookie-parser');
 
+
 // Import node-fetch si nécessaire
 let fetch;
 try {
@@ -23,8 +24,27 @@ try {
 }
 
 const app = express();
+const axios = require('axios');
 app.disable('x-powered-by');
 const PORT = process.env.FILMS_SERVER_PORT || 4001;
+const REVIEWS_SERVICE_URL = process.env.REVIEWS_SERVICE_URL || 'http://localhost:3003';
+
+const validateMovieId = (req, res, next) => {
+  const filmId = parseInt(req.params.id);
+  
+  if (isNaN(filmId) || filmId <= 0) {
+    return res.status(400).json({ error: 'Invalid movie ID' });
+  }
+  
+  const MAX_MOVIE_ID = 10000000;
+  if (filmId > MAX_MOVIE_ID) {
+    return res.status(400).json({ error: `Movie ID exceeds maximum allowed value (${MAX_MOVIE_ID})` });
+  }
+  
+  req.validatedFilmId = filmId;
+  next();
+};
+
 
 
 app.use(cors({ 
@@ -263,41 +283,36 @@ app.delete('/api/films/:id', authenticateToken, requireAdmin, async (req, res) =
 });
 
 // GET reviews d'un film (proxy vers le service reviews sur le port 3003)
-app.get('/api/movies/:id/reviews', authenticateToken, async (req, res) => {
+app.get('/api/movies/:id/reviews', authenticateToken, validateMovieId, async (req, res) => {
   try {
-    const filmId = parseInt(req.params.id);
+    const { validatedFilmId: filmId } = req;
     
-    if (isNaN(filmId)) {
-      return res.status(400).json({ error: 'Invalid movie ID' });
-    }
-
-    // Faire une requête au service reviews sur le port 3003
-    const reviewsUrl = `http://localhost:3003/reviews/movie/${filmId}`;
-    const reviewsResponse = await fetch(reviewsUrl, {
-      headers: {
-        'Authorization': req.headers['authorization'] || ''
+    const reviewsUrl = `${REVIEWS_SERVICE_URL}/reviews/movie/${filmId}`;
+    
+    const response = await axios.get(reviewsUrl, {
+      timeout: 5000,
+      maxRedirects: 2,
+      validateStatus: function (status) {
+        return status >= 200 && status < 300;
       }
     });
-
-    if (!reviewsResponse.ok) {
-      throw new Error(`Reviews service error: ${reviewsResponse.status}`);
-    }
-
-    const reviews = await reviewsResponse.json();
     
-    // Formater les reviews pour le frontend
-    const formattedReviews = reviews.map(review => ({
-      id: review.id,
-      author: review.email || `User${review.user_id}`,
-      rating: review.rating,
-      comment: review.comment,
-      created_at: review.created_at
-    }));
-
-    res.json(formattedReviews);
-  } catch (err) {
-    console.error('Error fetching reviews:', err);
-    res.status(500).json({ error: 'Failed to fetch reviews' });
+    res.json(response.data || []);
+    
+  } catch (error) {
+    console.error('Error fetching reviews:', error.message);
+    
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({ 
+        error: 'Reviews service not available',
+        message: 'Service on port 3003 is not running'
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to fetch reviews',
+      service: REVIEWS_SERVICE_URL
+    });
   }
 });
 

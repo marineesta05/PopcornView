@@ -17,7 +17,7 @@ export default function MovieDetail() {
     const [loadingReviews, setLoadingReviews] = useState(false);
     const [error, setError] = useState(null);
 
-    // ✅ Helper pour créer les options de fetch avec authentification
+    //  Helper pour créer les options de fetch avec authentification
     const getFetchOptions = () => {
         return {
             credentials: 'include',
@@ -27,7 +27,7 @@ export default function MovieDetail() {
         };
     };
 
-    // ✅ Fetch movie details
+    //  Fetch movie details
     useEffect(() => {
         if (!id) return;
         
@@ -63,7 +63,7 @@ export default function MovieDetail() {
         fetchMovie();
     }, [id, navigate]);
 
-    // ✅ Fetch reviews on mount
+    //  Fetch reviews on mount
     useEffect(() => {
         if (!id) return;
         
@@ -73,7 +73,7 @@ export default function MovieDetail() {
         loadReviews(0);
     }, [id]);
 
-    // ✅ Load reviews with pagination
+    //  Load reviews with pagination
     async function loadReviews(pageToLoad) {
         if (!id || loadingReviews || !hasMore) return;
         
@@ -127,7 +127,7 @@ export default function MovieDetail() {
         loadReviews(page + 1);
     }
 
-    // ✅ Calcul de la note moyenne
+    // Calcul de la note moyenne
     function averageRating() {
         if (movie && (movie.vote_average || movie.vote_average === 0)) {
             return Number(movie.vote_average).toFixed(1);
@@ -141,7 +141,7 @@ export default function MovieDetail() {
         navigate(`/movie/${id}/review`);
     };
 
-    // ✅ États de chargement et d'erreur
+    //  États de chargement et d'erreur
     if (loadingMovie) {
         return (
             <div style={{ textAlign: 'center', padding: '40px' }}>
@@ -252,6 +252,8 @@ export default function MovieDetail() {
                             }}
                             onMouseOver={(e) => e.target.style.backgroundColor = "#4527a0"}
                             onMouseOut={(e) => e.target.style.backgroundColor = "#5e35b1"}
+                            onFocus={(e) => e.target.style.backgroundColor = "#4527a0"}
+                            onBlur={(e) => e.target.style.backgroundColor = "#5e35b1"}
                         >
                             ✍️ Add Review
                         </button>
@@ -403,6 +405,8 @@ export default function MovieDetail() {
                     }}
                     onMouseOver={(e) => e.target.style.backgroundColor = "#4527a0"}
                     onMouseOut={(e) => e.target.style.backgroundColor = "#5e35b1"}
+                    onFocus={(e) => e.target.style.backgroundColor = "#4527a0"}
+                    onBlur={(e) => e.target.style.backgroundColor = "#5e35b1"}
                 >
                     ← Back to Movies
                 </button>
