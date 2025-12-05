@@ -1,29 +1,60 @@
 # PopcornView - Application Web Sécurisée
+
 > Application de gestion de films avec authentification robuste et conformité RGPD
+
 Guide d'installation et d'exécution pour les contributeurs qui clonent le dépôt.
 
-Ce README explique comment configurer l'environnement, lancer le backend et le frontend en développement, exécuter les tests et quelques bonnes pratiques de sécurité.
+---
 
-**Table des matières**
-- Prérequis
-- Structure du projet
-- Variables d'environnement (.env)
-- Base de données
-- Installation & exécution (dev)
-- Lancement multi-serveurs (Windows)
-- Tests
-- Sécurité et bonnes pratiques
-- Dépannage rapide
+## 📋 Table des matières
 
-**Prérequis**
-- Node.js (v16+ recommandé) et npm [Telechargez Node](https://nodejs.org/fr "Site NodeJs")
-- npm (inclus avec Node.js)
-- MySQL (ou compatible) pour la base de données [MySQL version 8.0.44](https://dev.mysql.com/downloads/installer/) 
-- Git pour cloner le dépôt https://git-scm.com/install/ [Telechargez Git](https://git-scm.com/install/)
+- [Prérequis](#-prérequis)
+- [Structure du projet](#-structure-du-projet)
+- [Installation](#-installation)
+- [Configuration](#-configuration)
+- [Base de données](#-base-de-données)
+- [Lancement de l'application](#-lancement-de-lapplication)
+- [Tests](#-tests)
+- [Sécurité et bonnes pratiques](#-sécurité-et-bonnes-pratiques)
+- [Dépannage](#-dépannage)
+- [Licence](#-licence)
 
-Sur Windows, utilisez PowerShell ou l'invite de commandes pour les étapes ci-dessous.
+---
 
-### Vérification des Installations
+## 🔧 Prérequis
+
+### Logiciels requis
+
+| Logiciel | Version minimale | Téléchargement |
+|----------|------------------|----------------|
+| **Node.js** | v16.0.0+ (v18+ recommandé) | [nodejs.org](https://nodejs.org/fr) |
+| **npm** | v9.0.0+ | Inclus avec Node.js |
+| **MySQL** | v8.0.44+ | [MySQL Installer](https://dev.mysql.com/downloads/installer/) |
+| **Git** | v2.x+ | [git-scm.com](https://git-scm.com/downloads) |
+
+### Vérification des installations
+
+#### 🪟 Windows (PowerShell)
+
+```powershell
+# Vérifier Node.js
+node --version
+# Attendu : v18.0.0 ou supérieur
+
+# Vérifier npm
+npm --version
+# Attendu : 9.0.0 ou supérieur
+
+# Vérifier MySQL
+mysql --version
+# Attendu : mysql Ver 8.0.x
+
+# Vérifier Git
+git --version
+# Attendu : git version 2.x.x
+```
+
+#### 🍎 macOS/Linux (Terminal)
 
 ```bash
 # Vérifier Node.js
@@ -45,11 +76,7 @@ git --version
 
 ---
 
-**Structure principale**
-- `backend/` : serveur Express (API, auth, stockage local JSON)
-- `frontend/` : application React
-- `tests/` : tests Jest (sécurité statique et d'intégration)
-- `data/` : stockage local (films)
+## 📁 Structure du projet
 
 ```
 popcorn-view/
@@ -60,6 +87,8 @@ popcorn-view/
 │   ├── .env                     # Variables d'environnement (NON COMMITÉ)
 │   ├── .env.example             # Template de configuration
 │   ├── package.json             # Dépendances backend
+│   ├── start-all.bat            # Script de lancement Windows
+│   ├── start-all.sh             # Script de lancement macOS/Linux
 │   ├── data/
 │   │   └── films.json           # Stockage des films
 │   ├── user/
@@ -81,16 +110,170 @@ popcorn-view/
 │   │   └── utils/
 │   │       └── csrf.js          # Helper CSRF
 │   └── package.json             # Dépendances frontend
+├── tests/
+│   ├── security.unit.test.js    # Tests unitaires sécurité
+│   └── security.integration.test.js # Tests d'intégration
+├── package.json                 # Dépendances racine (Jest)
 └── README.md                    # Ce fichier
-
 ```
 
-**Variables d'environnement**
+### Architecture des services
 
-Le backend utilise un fichier `.env` (chargé via `dotenv`). Un exemple est fourni : `backend/.env.example`.
-Créez `backend/.env` en copiant cet exemple et en renseignant vos valeurs réelles.
+```
+Frontend (React:3000) ←→ Serveur Principal (4000)
+                         ├→ Service Auth (3001)
+                         ├→ Service Films (4001)
+                         ├→ Service Reviews (3003)
+                         └→ MySQL Database (3306)
+```
 
-Clés importantes à définir dans `backend/.env` :
+---
+
+## 💾 Installation
+
+### 1. Cloner le dépôt
+
+#### 🪟 Windows (PowerShell)
+
+```powershell
+git clone https://github.com/marineesta05/PopcornView.git
+cd PopcornView
+```
+
+#### 🍎 macOS/Linux (Terminal)
+
+```bash
+git clone https://github.com/marineesta05/PopcornView.git
+cd PopcornView
+```
+
+### 2. Installer les dépendances
+
+#### Installation complète (toutes plateformes)
+
+```bash
+# Dépendances racine (Jest pour les tests)
+npm install
+
+# Dépendances backend
+cd backend
+npm install
+npm audit
+npm audit fix
+
+# Dépendances frontend
+cd ../frontend
+npm install
+npm audit
+npm audit fix
+
+# Retour à la racine
+cd ..
+```
+
+#### Liste des dépendances principales
+
+**Backend**
+
+| Package | Version | Usage |
+|---------|---------|-------|
+| `express` | ^4.18.2 | Framework web |
+| `bcryptjs` | ^2.4.3 | Hachage mots de passe |
+| `jsonwebtoken` | ^9.0.2 | Authentification JWT |
+| `mysql2` | ^3.15.3 | Connexion MySQL |
+| `helmet` | ^8.1.0 | Headers de sécurité |
+| `express-rate-limit` | ^8.2.1 | Rate limiting |
+| `express-validator` | ^7.3.1 | Validation entrées |
+| `cors` | ^2.8.5 | CORS |
+| `dotenv` | ^16.0.3 | Variables d'environnement |
+| `socket.io` | ^4.8.1 | WebSocket temps réel |
+
+**Frontend**
+
+| Package | Version | Usage |
+|---------|---------|-------|
+| `react` | ^18.0.0 | Framework UI |
+| `react-dom` | ^18.0.0 | Rendu DOM |
+| `react-router-dom` | ^6.0.0 | Routing |
+| `react-scripts` | ^5.0.1 | Scripts React |
+| `axios` | ^1.0.0 | Requêtes HTTP |
+| `socket.io-client` | ^4.8.1 | WebSocket client |
+
+---
+
+## ⚙️ Configuration
+
+### Variables d'environnement
+
+#### 1. Créer le fichier `.env`
+
+#### 🪟 Windows (PowerShell)
+
+```powershell
+cd backend
+Copy-Item .env.example .env
+```
+
+#### 🍎 macOS/Linux (Terminal)
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+#### 2. Générer une clé JWT sécurisée
+
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
+
+**Exemple de sortie :**
+```
+8f7a9b2c1d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2
+```
+
+#### 3. Obtenir une clé API TMDB (optionnel)
+
+1. Créez un compte sur [TMDB](https://www.themoviedb.org/)
+2. Accédez à [API Settings](https://www.themoviedb.org/settings/api)
+3. Demandez une clé API (gratuite)
+4. Copiez la clé dans le fichier `.env`
+
+#### 4. Compléter le fichier `.env`
+
+```bash
+# BASE DE DONNÉES
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=votre_mot_de_passe_mysql
+DB_NAME=popcorn_view
+DB_PORT=3306
+
+# SERVEURS
+SERVER_PORT=3001          # Service auth
+PORT=4000                 # Serveur principal
+FILM_SERVER_PORT=4001     # Service films
+REVIEW_SERVICE_PORT=3003  # Service reviews
+
+# JWT (COLLEZ LA CLÉ GÉNÉRÉE ICI)
+JWT_SECRET=votre_cle_jwt_generee_64_caracteres
+
+# TMDB API (Optionnel - pour importer des films)
+TMDB_API_KEY=votre_cle_tmdb_optionnelle
+
+# FRONTEND
+REACT_APP_API_URL=http://localhost:4000
+REACT_APP_FILMS_API_URL=http://localhost:4001
+FRONTEND_URL=http://localhost:3000
+
+# ADMIN PAR DÉFAUT (À CHANGER EN PRODUCTION !)
+ADMIN_EMAIL=admin@popcornview.com
+ADMIN_PASSWORD=Admin@SecurePass2024!
+ADMIN_NOM=Administrateur
+ADMIN_PRENOM=Système
+```
+
+#### Configuration des variables
 
 | Variable | Description | Exemple | Obligatoire |
 |----------|-------------|---------|-------------|
@@ -102,300 +285,410 @@ Clés importantes à définir dans `backend/.env` :
 | `JWT_SECRET` | Clé JWT (64+ chars) | `8f7a9b2c...` | ✅ |
 | `SERVER_PORT` | Port service auth | `3001` | ⚠️ |
 | `PORT` | Port backend principal | `4000` | ⚠️ |
+| `FILM_SERVER_PORT` | Port service films | `4001` | ⚠️ |
 | `REVIEW_SERVICE_PORT` | Port reviews | `3003` | ⚠️ |
 | `TMDB_API_KEY` | Clé API TMDB | `abc123...` | ❌ |
-| `FILM_SERVER_PORT` | Port pour les avis | 4001 | ⚠️ |
 
-
-- `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NOM`, `ADMIN_PRENOM` : valeurs utilisées pour créer un admin initial si manquant (remplacez-les en prod)
-  
-**Légende** :
+**Légende :**
 - ✅ Obligatoire
 - ⚠️ Recommandé (valeur par défaut existe)
 - ❌ Optionnel
-  
 
-**Important!!** : Pour generer aleatoirement une cle JWT mettre cette commande dans le terminal
-```powershell
-node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
-```
-**Cela va renvoyer une cle JWT que vous pourrez coller dans le fichier .env**
-
-Note de sécurité : ne commitez jamais un `.env` contenant des secrets. `backend/.env.example` sert de modèle.
-
-### Dépendances Principales
-
-#### Backend
-
-| Package | Version | Usage |
-|---------|---------|-------|
-| `express` | ^4.18.2 | Framework web |
-| `bcryptjs` | ^2.4.3 | Hachage mots de passe |
-| `jsonwebtoken` | ^9.0.2 | Authentification JWT |
-| `mysql2` | ^3.15.3 | Connexion MySQL (Promise) |
-| `helmet` | ^8.1.0 | Headers de sécurité |
-| `express-rate-limit` | ^8.2.1 | Rate limiting |
-| `express-validator` | ^7.3.1 | Validation entrées |
-| `validator` | ^13.15.23 | Validation email/strings |
-| `cors` | ^2.8.5 | Cross-Origin Resource Sharing |
-| `dotenv` | ^16.0.3 | Variables d'environnement |
-| `socket.io` | ^4.8.1 | WebSocket temps réel |
-
-#### Frontend
-
-| Package | Version | Usage |
-|---------|---------|-------|
-| `react` | ^18.0.0 | Framework UI |
-| `react-dom` | ^18.0.0 | Rendu DOM |
-| `react-router-dom` | ^6.0.0 | Routing |
-| `axios` | ^1.0.0 | Requêtes HTTP |
-
----
-
-### Flux de Données
-
-### Commandes d'installation des dépendances
-
-Pour installer rapidement *toutes* les dépendances nécessaires au projet, exécutez ces commandes depuis la racine ou les dossiers indiqués.
-
-1) Installer les outils de test au niveau racine (Jest) :
-
-```powershell
-# à la racine du dépôt
-npm install --save-dev jest
-```
-
-2) Backend — dépendances de production :
-
-```powershell
-cd backend
-npm install express bcryptjs cookie-parser cors debug dotenv axios express-rate-limit express-validator helmet iconv-lite jsonwebtoken mysql2 node-fetch sanitize-html socket.io validator
-```
-
-3) Backend — dépendances de développement (lint, outils) :
-
-```powershell
-cd backend
-npm install --save-dev eslint @eslint/js eslint-plugin-react globals
-```
-
-4) Frontend — dépendances de production :
-
-```powershell
-cd frontend
-npm install react react-dom react-router-dom axios jwt-decode react-scripts web-vitals @testing-library/dom @testing-library/react @testing-library/jest-dom @testing-library/user-event socket
-```
-
-5) Frontend — dépendances de développement (lint) :
-
-```powershell
-cd frontend
-npm install --save-dev eslint eslint-config-react-app eslint-plugin-react globals
-```
-
-Remarques :
-- Les versions précises utilisées par le projet sont indiquées dans les `package.json` respectifs — ces commandes installent les dernières versions compatibles.
-- Après l'installation, exécutez `npm audit` dans chaque dossier (racine/backend/frontend) et appliquez `npm audit fix` si nécessaire.
-
-
-```
-Frontend (React) ←→ Server Principal (4000)
-                    ├→ Service Auth (3001)
-                    ├→ Service Reviews (3003)
-                    └→ MySQL Database
-```
-
-
-
-**Base de données**
-
-Le projet utilise MySQL via `mysql2`. Créez la base avant de lancer le serveur :
-
-1. Lancez MySQL (localement ou distant).
-2. Créez la base :
-
-```sql
-CREATE DATABASE IF NOT EXISTS popcorn_view CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
--- Créez un utilisateur et donnez les droits si besoin :
--- CREATE USER 'pv_user'@'localhost' IDENTIFIED BY 'strong_password';
--- GRANT ALL PRIVILEGES ON popcorn_view.* TO 'pv_user'@'localhost';
-```
-
-Le serveur backend crée automatiquement un utilisateur administrateur (selon les variables `ADMIN_*`) si aucun admin n'existe.
-
-Si non, importer le fichier `.sql` ou se trouve la BDD. 
-
-## Installation & exécution (développement)
-
-### - Cloner le dépôt :
-
-```powershell
-git clone https://github.com/marineesta05/PopcornView.git
-cd PopcornView
-```
-
-### - Installer les dépendances (racine pour les tests, puis backend/frontend) :
-
-```powershell
-npm install        # installe Jest pour exécuter les tests
-cd backend
-npm install
-# Vérifier les vulnérabilités
-npm audit
-# Attendu : 0 vulnérabilités High ou Critical
-# installer les dependances frontend
-cd ..\frontend
-npm install
-cd ..
-```
-
-#### Installer les Dépendances Manquantes (si nécessaire)
-
-Si `npm audit` montre des vulnérabilités :
-
-```bash
-npm audit fix
-npm audit fix --force  # Si nécessaire
-npm install validator  # Dépendance critique pour validation email
-```
-
-### - Créer `backend/.env` en copiant `backend/.env.example` et en renseignant vos valeurs.
-#### Générer un JWT_SECRET Sécurisé
-
-```bash
-# Générer une clé aléatoire de 64 caractères
-node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
-
-# Exemple de sortie :
-# 8f7a9b2c1d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2
-```
-Copiez cette clé dans le fichier `.env`
-
-```bash
-
-# Il faut également générer une clé API TMDB, celle-ci se trouve sur le site TMDB : 
-https://developer.themoviedb.org/docs/getting-started
-# puis il faut suivre les consignes données sur le site. Une fois la clé API générée, copier la dans le .env.
-
-
-# BASE DE DONNÉES
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=votre_mot_de_passe_mysql
-DB_NAME=popcorn_view
-DB_PORT=3306
-
-# SERVEURS
-SERVER_PORT=3001
-PORT=4000
-REVIEW_SERVICE_PORT=3003
-
-# JWT (COLLEZ LA CLÉ GÉNÉRÉE ICI)
-JWT_SECRET=
-
-# TMDB API (Optionnel - pour importer des films)
-TMDB_API_KEY=votre_cle_tmdb_optionnelle
-
-# FRONTEND
-REACT_APP_API_URL=http://localhost:4000
-REACT_APP_FILMS_API_URL=http://localhost:4000
-FRONTEND_URL=http://localhost:3000
-
-# ADMIN PAR DÉFAUT
-ADMIN_EMAIL=admin@popcornview.com
-ADMIN_PASSWORD=Admin@SecurePass2024!
-ADMIN_NOM=Administrateur
-ADMIN_PRENOM=Système
-```
-
-#### Vérifier la Sécurité du .env
+#### 5. Vérifier la sécurité du .env
 
 ```bash
 # Vérifier que .env est ignoré par Git
 cat .gitignore | grep .env
-# Attendu : .env doit apparaître dans la liste
+# Attendu : .env doit apparaître
 
 # Vérifier que .env n'est PAS dans Git
 git status
 # .env ne doit PAS apparaître dans les fichiers à committer
 ```
 
+---
 
-### - Lancer le backend :
+## 🗄️ Base de données
 
+### 1. Créer la base de données MySQL
+
+#### Connexion à MySQL- Options 1
+
+Ouvrir votre logiciel MySQL (dans notre cas PhpMyAdmin) et importer la Base donnees
+
+#### Option 2
+Ouvrir votre logiciel MySQL (dans notre cas PhpMyAdmin) 
+
+```sql
+CREATE DATABASE IF NOT EXISTS popcorn_view 
+CHARACTER SET utf8mb4 
+COLLATE utf8mb4_unicode_ci;
+
+-- Créer un utilisateur dédié (recommandé)
+CREATE USER 'pv_user'@'localhost' IDENTIFIED BY 'StrongPassword2024!';
+GRANT ALL PRIVILEGES ON popcorn_view.* TO 'pv_user'@'localhost';
+FLUSH PRIVILEGES;
+
+-- Quitter MySQL
+EXIT;
+```
+
+### 2. Initialiser les tables (Si option 2)
+
+Les tables seront créées automatiquement au premier lancement du serveur backend. Un utilisateur administrateur sera également créé selon les variables `ADMIN_*` du fichier `.env`.
+
+**Alternative :** Si vous avez un fichier SQL de dump, importez-le :
+
+```bash
+mysql -u root -p popcorn_view < chemin/vers/dump.sql
+```
+
+---
+
+## 🚀 Lancement de l'application
+
+### Option 1 : Lancement automatique (recommandé)
+
+#### 🪟 Windows
+
+```powershell
+cd backend
+.\start-all.bat
+```
+
+Ce script ouvre automatiquement 4 fenêtres PowerShell pour :
+- Serveur principal (port 4000)
+- Service authentification (port 3001)
+- Service films (port 4001)
+- Service reviews (port 3003)
+
+#### 🍎 macOS/Linux
+
+```bash
+cd backend
+chmod +x start-all.sh  # Rendre le script exécutable (une seule fois)
+./start-all.sh
+```
+
+Ce script lance les 4 services backend dans des terminaux séparés.
+
+### Option 2 : Lancement manuel
+
+Si vous préférez contrôler chaque service individuellement :
+
+#### 🪟 Windows (PowerShell) - Ouvrez 4 fenêtres
+
+**Fenêtre 1 - Serveur principal :**
 ```powershell
 cd backend
 node server.js
-#le faire manuelment sur les 4 fichiers back.
 ```
 
-**Lancement multi-serveurs (Windows)**
+**Fenêtre 2 - Service auth :**
+```powershell
+cd backend\user
+node server.js
+```
 
-Un script batch est fourni pour démarrer les différents services dans des fenêtres séparées (Windows) :
-
+**Fenêtre 3 - Service films :**
 ```powershell
 cd backend
-start-all.bat
+node index.js
 ```
 
-
-Ce script ouvre 4 fenêtres de commande automatiquement.
-
-### - Lancer le frontend (dev) :
-
+**Fenêtre 4 - Service reviews :**
 ```powershell
+cd backend\movie
+node serverReview.js
+```
+
+#### 🍎 macOS/Linux (Terminal) - Ouvrez 4 onglets
+
+**Onglet 1 - Serveur principal :**
+```bash
+cd backend
+node server.js
+```
+
+**Onglet 2 - Service auth :**
+```bash
+cd backend/user
+node server.js
+```
+
+**Onglet 3 - Service films :**
+```bash
+cd backend
+node index.js
+```
+
+**Onglet 4 - Service reviews :**
+```bash
+cd backend/movie
+node serverReview.js
+```
+
+### Lancement du frontend
+
+Dans une nouvelle fenêtre/onglet de terminal :
+
+```bash
 cd frontend
 npm start
-# React démarre sur http://localhost:3000 par défaut
 ```
 
-#### Dépannage : `'react-scripts' n’est pas reconnu`
+Le frontend démarre automatiquement sur **http://localhost:3000**
 
-Si `npm start` renvoie l'erreur `react-scripts n’est pas reconnu en tant que commande`, cela signifie que la dépendance `react-scripts` n'est pas installée ou n'est pas disponible dans votre environnement. Pour corriger :
+### Vérification du bon fonctionnement
 
-```powershell
+Ouvrez votre navigateur et accédez à :
+
+- **Frontend :** http://localhost:3000
+- **API principale :** http://localhost:4000
+- **Service auth :** http://localhost:3001
+- **Service films :** http://localhost:4001
+- **Service reviews :** http://localhost:3003
+
+---
+
+## 🧪 Tests
+
+### Lancer tous les tests
+
+```bash
+# Depuis la racine du projet
+npm test
+```
+
+### Lancer uniquement les tests de sécurité
+
+```bash
+npx jest tests/security.unit.test.js tests/security.integration.test.js --runInBand
+```
+
+### Structure des tests
+
+```
+tests/
+├── security.unit.test.js         # Tests unitaires (validation, hachage...)
+└── security.integration.test.js  # Tests d'intégration (API, auth...)
+```
+
+**Note :** Les tests fournis sont principalement des contrôles statiques et heuristiques. Ils peuvent renvoyer de faux positifs si le style de code change. Adaptez-les selon vos besoins.
+
+---
+
+## 🔒 Sécurité et bonnes pratiques
+
+### Secrets et authentification
+
+- ✅ **JWT_SECRET** : Utilisez une clé longue (64+ caractères) et unique
+- ✅ Changez `ADMIN_PASSWORD` en production
+- ✅ Ne commitez **JAMAIS** le fichier `.env`
+- ✅ Utilisez `NODE_ENV=production` en production
+- ✅ Activez les cookies `secure` et `httpOnly` en production
+
+### CORS et origines
+
+```javascript
+// backend/server.js - Exemple de configuration CORS stricte
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true
+};
+```
+
+Limitez les origines CORS aux domaines de confiance uniquement.
+
+### Rate Limiting
+
+L'application utilise `express-rate-limit` pour prévenir les attaques par force brute :
+
+- **Login :** 5 tentatives / 15 minutes
+- **Register :** 3 comptes / heure / IP
+- **API générale :** 100 requêtes / 15 minutes
+
+### Validation des entrées
+
+Toutes les entrées utilisateur sont validées avec `express-validator` :
+
+- Emails : format valide + normalisation
+- Mots de passe : 8+ caractères, majuscule, minuscule, chiffre, caractère spécial
+- XSS : sanitization avec `sanitize-html`
+- SQL Injection : requêtes préparées avec `mysql2`
+
+### Headers de sécurité
+
+Le middleware `helmet` ajoute automatiquement les headers de sécurité :
+
+```
+Content-Security-Policy
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-XSS-Protection: 1; mode=block
+Strict-Transport-Security
+```
+
+### Audit de sécurité
+
+```bash
+# Vérifier les vulnérabilités npm
+npm audit
+
+# Corriger automatiquement
+npm audit fix
+
+# Forcer les corrections (attention aux breaking changes)
+npm audit fix --force
+```
+
+---
+
+## 🔧 Dépannage
+
+### `react-scripts n'est pas reconnu`
+
+Si `npm start` échoue avec cette erreur :
+
+```bash
 cd frontend
 npm install react-scripts@5.0.1 --save
 npm start
 ```
 
-Cette commande installe `react-scripts` (version stable 5.0.1 recommandée pour ce projet) puis relance l'application. Si vous utilisez macOS/Linux, exécutez les mêmes commandes dans un terminal bash.
+### Erreur de connexion MySQL
 
+**Symptômes :** `ER_ACCESS_DENIED_ERROR` ou `ECONNREFUSED`
 
-## Tests
+**Solutions :**
 
-Les tests utilisent Jest (configuration au niveau racine). Pour exécuter la suite :
+1. Vérifiez que MySQL est démarré
+2. Vérifiez les identifiants dans `.env`
+3. Testez la connexion manuellement :
 
-```powershell
-# depuis la racine du dépôt
-npm test
-
-# exécuter uniquement les tests de sécurité
-npx jest tests/security.unit.test.js tests/security.integration.test.js --runInBand
+```bash
+mysql -u root -p -h localhost
 ```
 
-Les tests fournis sont principalement des contrôles statiques/heuristiques sur le code (recherche de patterns). Ils peuvent renvoyer de faux positifs si le style de code change : adaptez-les si nécessaire.
+4. Vérifiez les permissions de l'utilisateur :
 
-**Sécurité & bonnes pratiques**
+```sql
+SHOW GRANTS FOR 'pv_user'@'localhost';
+```
 
-- JWT : définissez `JWT_SECRET` fort et long; changez-le en production.
-- Ne commitez jamais de fichiers `.env` ou de secrets dans le dépôt.
-- Changez les valeurs `ADMIN_PASSWORD` par défaut dans l'environnement ; évitez les valeurs faibles comme `admin@123` en production.
-- Assurez-vous que `NODE_ENV=production` en prod pour activer les cookies `secure` et comportement prod.
-- Limitez les origines CORS autorisées aux domaines de votre frontend.
-- Surveillez les logs pour détecter des fuites (`err.stack`) et ne renvoyez pas directement les traces d'erreur au client.
+### Port déjà utilisé
 
+**Symptômes :** `EADDRINUSE: address already in use`
 
-Merci et bon développement !
-## 📄 Licence
+**Solutions :**
 
-Ce projet est réalisé dans un cadre pédagogique.  
-**Année** : 2025  
-**École** : EFREI Paris 
-**Module** : Sécurité des Applications Web
+#### 🪟 Windows
+
+```powershell
+# Trouver le processus sur le port 4000
+netstat -ano | findstr :4000
+
+# Tuer le processus (remplacer PID par le numéro affiché)
+taskkill /PID <PID> /F
+```
+
+#### 🍎 macOS/Linux
+
+```bash
+# Trouver le processus sur le port 4000
+lsof -i :4000
+
+# Tuer le processus (remplacer PID par le numéro affiché)
+kill -9 <PID>
+```
+
+### JWT_SECRET manquant
+
+**Symptômes :** Erreur au démarrage du serveur
+
+**Solution :** Générez et ajoutez une clé JWT dans `.env` :
+
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
+
+### Problèmes de dépendances
+
+```bash
+# Nettoyer les modules
+rm -rf node_modules package-lock.json
+
+# Réinstaller
+npm install
+
+# Ou avec cache clean
+npm cache clean --force
+npm install
+```
+
+### Base de données non initialisée
+
+Si les tables n'existent pas :
+
+1. Vérifiez que `DB_NAME` existe dans MySQL
+2. Lancez le serveur backend - il créera les tables automatiquement
+3. Vérifiez les logs du serveur pour d'éventuelles erreurs
+
+### Erreur CORS
+
+Si le frontend ne peut pas communiquer avec le backend :
+
+1. Vérifiez que `FRONTEND_URL` dans `.env` correspond à l'URL du frontend
+2. Vérifiez que le backend est bien lancé
+3. Vérifiez les headers CORS dans les outils de développement du navigateur
 
 ---
 
-**Version** : 1.0.0 Sécurisée  
-**Dernière mise à jour** : Décembre 2025 
+## 📝 Commandes utiles
 
+### Développement
+
+```bash
+# Lancer les serveurs backend (Windows)
+cd backend && start-all.bat
+
+# Lancer les serveurs backend (macOS/Linux)
+cd backend && ./start-all.sh
+
+# Lancer le frontend
+cd frontend && npm start
+
+# Tests
+npm test
+
+# Audit de sécurité
+npm audit
+```
+
+### Production
+
+```bash
+# Build du frontend
+cd frontend
+npm run build
+
+# Lancer en mode production
+NODE_ENV=production node server.js
+```
+
+---
+
+## 📄 Licence
+
+Ce projet est réalisé dans un cadre **pédagogique**.
+
+- **Année :** 2025
+- **École :** EFREI Paris
+- **Module :** Sécurité des Applications Web
+- **Version :** 1.0.0 Sécurisée
+- **Dernière mise à jour :** Décembre 2025
+
+---
+
+
+**Merci d'utiliser PopcornView ! 🍿**
