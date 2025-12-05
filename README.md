@@ -223,6 +223,8 @@ CREATE DATABASE IF NOT EXISTS popcorn_view CHARACTER SET utf8mb4 COLLATE utf8mb4
 
 Le serveur backend crée automatiquement un utilisateur administrateur (selon les variables `ADMIN_*`) si aucun admin n'existe.
 
+Si non, importer le fichier `.sql` ou se trouve la BDD. 
+
 ## Installation & exécution (développement)
 
 ### - Cloner le dépôt :
