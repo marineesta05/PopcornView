@@ -154,6 +154,50 @@ Note de sécurité : ne commitez jamais un `.env` contenant des secrets. `backen
 
 ### Flux de Données
 
+### Commandes d'installation des dépendances
+
+Pour installer rapidement *toutes* les dépendances nécessaires au projet, exécutez ces commandes depuis la racine ou les dossiers indiqués.
+
+1) Installer les outils de test au niveau racine (Jest) :
+
+```powershell
+# à la racine du dépôt
+npm install --save-dev jest
+```
+
+2) Backend — dépendances de production :
+
+```powershell
+cd backend
+npm install express bcryptjs cookie-parser cors debug dotenv axios express-rate-limit express-validator helmet iconv-lite jsonwebtoken mysql2 node-fetch sanitize-html socket.io validator
+```
+
+3) Backend — dépendances de développement (lint, outils) :
+
+```powershell
+cd backend
+npm install --save-dev eslint @eslint/js eslint-plugin-react globals
+```
+
+4) Frontend — dépendances de production :
+
+```powershell
+cd frontend
+npm install react react-dom react-router-dom axios jwt-decode react-scripts web-vitals @testing-library/dom @testing-library/react @testing-library/jest-dom @testing-library/user-event socket
+```
+
+5) Frontend — dépendances de développement (lint) :
+
+```powershell
+cd frontend
+npm install --save-dev eslint eslint-config-react-app eslint-plugin-react globals
+```
+
+Remarques :
+- Les versions précises utilisées par le projet sont indiquées dans les `package.json` respectifs — ces commandes installent les dernières versions compatibles.
+- Après l'installation, exécutez `npm audit` dans chaque dossier (racine/backend/frontend) et appliquez `npm audit fix` si nécessaire.
+
+
 ```
 Frontend (React) ←→ Server Principal (4000)
                     ├→ Service Auth (3001)
@@ -226,6 +270,12 @@ node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 Copiez cette clé dans le fichier `.env`
 
 ```bash
+
+# Il faut également générer une clé API TMDB, celle-ci se trouve sur le site TMDB : 
+https://developer.themoviedb.org/docs/getting-started
+# puis il faut suivre les consignes données sur le site. Une fois la clé API générée, copier la dans le .env.
+
+
 # BASE DE DONNÉES
 DB_HOST=localhost
 DB_USER=root
@@ -296,6 +346,19 @@ cd frontend
 npm start
 # React démarre sur http://localhost:3000 par défaut
 ```
+
+#### Dépannage : `'react-scripts' n’est pas reconnu`
+
+Si `npm start` renvoie l'erreur `react-scripts n’est pas reconnu en tant que commande`, cela signifie que la dépendance `react-scripts` n'est pas installée ou n'est pas disponible dans votre environnement. Pour corriger :
+
+```powershell
+cd frontend
+npm install react-scripts@5.0.1 --save
+npm start
+```
+
+Cette commande installe `react-scripts` (version stable 5.0.1 recommandée pour ce projet) puis relance l'application. Si vous utilisez macOS/Linux, exécutez les mêmes commandes dans un terminal bash.
+
 
 ## Tests
 
