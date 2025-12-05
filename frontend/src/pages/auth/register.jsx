@@ -43,8 +43,8 @@ const Register = () => {
             const data = await response.json();
 
             if (response.status === 201) {
-                setSuccess("Inscription réussie ! Connectez-vous.");
-                navigate("/login");  
+                setSuccess("Inscription réussie ! ");
+                navigate("/home");  
                 setFormData({ nom:'', prenom:'', email: "", password: "", consent:false });
             } else {
                 setError(data.message || "Une erreur s'est produite.");

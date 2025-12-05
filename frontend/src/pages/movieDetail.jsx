@@ -106,7 +106,11 @@ export default function MovieDetail() {
             const startIndex = pageToLoad * PAGE_SIZE;
             const paginatedData = data.slice(startIndex, startIndex + PAGE_SIZE);
             
-            setReviews((prev) => [...prev, ...paginatedData]);
+            setReviews((prev) => {
+                const ids = new Set(prev.map(r => r.id));
+                const filtered = paginatedData.filter(r => !ids.has(r.id));
+                return [...prev, ...filtered];
+            });
             
             // Vérifier s'il reste des reviews
             if (paginatedData.length < PAGE_SIZE || startIndex + PAGE_SIZE >= data.length) {
@@ -370,7 +374,7 @@ export default function MovieDetail() {
                                 fontStyle: 'italic',
                                 padding: '10px'
                             }}>
-                                All reviews loaded.
+                                
                             </div>
                         )
                     )}
