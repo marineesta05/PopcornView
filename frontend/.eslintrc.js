@@ -14,7 +14,8 @@ module.exports = {
     "no-unused-vars": "warn",
     "no-empty": "warn",
     "no-useless-escape": "warn",
-    "react/react-in-jsx-scope": "off",  // Add this line
+    "react/react-in-jsx-scope": "off",  
+    "react/no-unescaped-entities": "off",
   },
   settings: {
     react: { version: "detect" },
